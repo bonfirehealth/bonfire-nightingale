@@ -1,0 +1,46 @@
+{
+  "app": "python3 app.py",
+  "watch": {
+    "include": [
+      "**"
+    ],
+    "exclude": [
+      "README.md",
+      "cdk*.json",
+      "requirements*.txt",
+      "source.bat",
+      "**/__init__.py",
+      "python/__pycache__",
+      "tests"
+    ]
+  },
+  "context": {
+    "@aws-cdk/aws-lambda:recognizeLayerVersion": true,
+    "@aws-cdk/core:checkSecretUsage": true,
+    "@aws-cdk/core:target-partitions": [
+      "aws",
+      "aws-cn"
+    ],
+    "@aws-cdk-containers/ecs-service-extensions:enableDefaultLogging": true,
+    "@aws-cdk/aws-ec2:uniqueImdsv2TemplateName": true,
+    "@aws-cdk/aws-ecs:arnFormatIncludesClusterName": true,
+    "@aws-cdk/aws-iam:minimizePolicies": true,
+    "aws-cdk:enableStackNameDuplicates": "true",
+    "aws-cdk:stackRelativeExports": "true",
+    "aws-cdk:enableDiffNoFail": "true",
+    "@aws-cdk/core:newStyleStackSynthesis": true,
+    "environment_name": "dev",
+    "rds_username": "bonfire",
+    "db_name_prefix": "nightingale",
+    "dev:rds_instance_size": "BURSTABLE3_MEDIUM",
+    "dev:lambda_memory_ingest": 256,
+    "dev:lambda_memory_process": 512,
+    "dev:lambda_memory_scheduled": 256,
+    "dev:nat_gateways": 1,
+    "prod:rds_instance_size": "R6G_LARGE",
+    "prod:lambda_memory_ingest": 512,
+    "prod:lambda_memory_process": 1024,
+    "prod:lambda_memory_scheduled": 512,
+    "prod:nat_gateways": 2
+  }
+}
