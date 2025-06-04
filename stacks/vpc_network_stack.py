@@ -16,7 +16,7 @@ class VpcNetworkStack(Stack):
         # VPC
         self.vpc = ec2.Vpc(self, "NightingaleVpc",
             max_azs=2, # Use 2 AZs for high availability
-            cidr="10.0.0.0/16",
+            ip_addresses=ec2.IpAddresses.cidr("10.0.0.0/16"),
             subnet_configuration=[
                 ec2.SubnetConfiguration(
                     name="PublicSubnet",
@@ -45,6 +45,28 @@ class VpcNetworkStack(Stack):
             allow_all_outbound=True # Lambda needs to go out to call WATI, OpenAI, Google
         )
 
+        # Security Group cho Bastion (tạo ở đây để tránh circular dependency)
+        self.bastion_security_group = ec2.SecurityGroup(self, "BastionSecurityGroup",
+            vpc=self.vpc,
+            description="Security group for Bastion EC2 instance",
+            allow_all_outbound=True
+        )
+
+        # Cho phép SSH vào Bastion từ VPC
+        self.bastion_security_group.add_ingress_rule(
+            peer=ec2.Peer.ipv4("10.0.0.0/16"),
+            connection=ec2.Port.tcp(22),
+            description="Allow SSH from VPC"
+        )
+
+        # Allow SSH from your specific IP (replace with your actual IP)
+        your_ip = "1.55.14.60/32"
+        self.bastion_security_group.add_ingress_rule(
+            peer=ec2.Peer.ipv4(your_ip),
+            connection=ec2.Port.tcp(22),
+            description="Allow SSH from my IP"
+        )
+
         # Security Group cho RDS
         self.rds_security_group = ec2.SecurityGroup(self, "RdsSecurityGroup",
             vpc=self.vpc,
@@ -56,6 +78,13 @@ class VpcNetworkStack(Stack):
             peer=self.lambda_security_group,
             connection=ec2.Port.tcp(5432), # Port PostgreSQL
             description="Allow Lambda to connect to RDS"
+        )
+
+        # Allow Bastion to connect to RDS
+        self.rds_security_group.add_ingress_rule(
+            peer=self.bastion_security_group,
+            connection=ec2.Port.tcp(5432),
+            description="Allow Bastion EC2 to connect to RDS"
         )
 
         # (Optional) VPC Endpoints to enhance security and cost savings

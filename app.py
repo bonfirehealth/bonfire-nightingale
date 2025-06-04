@@ -7,6 +7,7 @@ from stacks.database_stack import DatabaseStack
 from stacks.messaging_stack import MessagingStack
 from stacks.api_lambda_stack import ApiLambdaStack
 from stacks.scheduler_stack import SchedulerStack
+from stacks.ec2_stack import BastionEc2Stack
 
 app = cdk.App()
 
@@ -41,6 +42,15 @@ vpc_stack = VpcNetworkStack(app, f"NightingaleVpcStack-{environment_name}",
     **stack_props,
     nat_gateways_count=nat_gateways_count
 )
+
+# Stack for Bastion EC2 (sử dụng Security Group từ VPC Stack)
+bastion_stack = BastionEc2Stack(app, f"NightingaleBastionStack-{environment_name}",
+    vpc=vpc_stack.vpc,
+    bastion_security_group=vpc_stack.bastion_security_group,  # Truyền Bastion SG từ VPC Stack
+    rds_security_group=vpc_stack.rds_security_group,
+    **stack_props
+)
+bastion_stack.add_dependency(vpc_stack)
 
 # Stack for Secrets Manager
 secrets_stack = SecretsStack(app, f"NightingaleSecretsStack-{environment_name}",

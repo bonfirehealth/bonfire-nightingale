@@ -19,7 +19,6 @@ secrets_client = boto3.client('secretsmanager')
 db_conn = None
 
 def get_secret(secret_arn):
-    # (Similar to ProcessFunction)
     try:
         response = secrets_client.get_secret_value(SecretId=secret_arn)
         if 'SecretString' in response:
@@ -35,18 +34,16 @@ def load_app_config():
     if app_config is None:
         try:
             logger.info(f"Loading application configuration from Secrets Manager: {APPLICATION_SECRETS_ARN}")
-            secret_string = get_secret(APPLICATION_SECRETS_ARN)
-            app_config = json.loads(secret_string)
+            app_config = get_secret(APPLICATION_SECRETS_ARN)
             logger.info("Application configuration loaded successfully.")
         except Exception as e:
             logger.error(f"Failed to load application configuration: {e}")
-            # Quyết định hành vi khi không load được config (ví dụ: raise error để Lambda fail)
             raise RuntimeError(f"Could not load application configuration from {APPLICATION_SECRETS_ARN}") from e
     return app_config
 
 
+
 def get_db_connection():
-    # (Similar to ProcessFunction)
     global db_conn
     if db_conn and db_conn.closed == 0:
          try:
@@ -72,15 +69,31 @@ def get_db_connection():
     return db_conn
 
 def send_wati_message(recipient_id, message_text):
-    # (Similar to ProcessFunction, or create a common layer/utility)
     try:
+        logger.info(f"Sending WATI message: `{message_text}` to {recipient_id}")
         config = load_app_config()
-        wati_api_key = config.get('WATI_API_KEY')
+        wati_access_token = config.get('WATI_ACCESS_TOKEN')
+        if not wati_access_token:
+            raise ValueError("WATI Access Token not found or not configured in application secrets.")
+        
+        wati_api_endpoint = config.get('WATI_API_ENDPOINT')
+        if not wati_api_endpoint:
+            raise ValueError("WATI API Endpoint not found or not configured in application secrets.")
+        
+        logger.info(f"WATI API Endpoint: {wati_api_endpoint}")
+        import requests
+        headers = {
+            "Content-type": "application/x-www-form-urlencoded",
+            "Authorization": f"Bearer {wati_access_token}"
+        }
+        payload = {"messageText": message_text}
+        url = f"{wati_api_endpoint}/api/v1/sendSessionMessage/{recipient_id}"
+        response = requests.post(url, data=payload, headers=headers)
+        response.raise_for_status()
         logger.info(f"Sent WATI message to {recipient_id}: {message_text}")
-        print(f"[WATI SIMULATION - SCHEDULED] To {recipient_id}: {message_text}") # Placeholder
         return True
     except Exception as e:
-        logger.error(f"Error sending WATI message from scheduled task: {e}")
+        logger.error(f"Error sending WATI message: {e}")
         return False
 
 def handle_3_day_follow_up():

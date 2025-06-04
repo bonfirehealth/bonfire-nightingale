@@ -1,3 +1,4 @@
+import os
 from aws_cdk import (
     Stack,
     aws_secretsmanager as secretsmanager,
@@ -16,21 +17,18 @@ class SecretsStack(Stack):
         secret_prefix = f"nightingale/{environment_name}"
 
         secret_json_template = {
-            "OPENAI_API_KEY": "YOUR_OPENAI_KEY_HERE",
-            "WATI_API_ENDPOINT": "YOUR_WATI_ENDPOINT_HERE",
-            "WATI_ACCESS_TOKEN": "YOUR_WATI_TOKEN_HERE",
-            "GOOGLE_EMAIL_ADDRESS": "YOUR_GMAIL_ADDRESS_HERE",
-            "GOOGLE_APP_PASSWORD": "YOUR_GOOGLE_APP_PASSWORD_HERE",
-            # Thêm các biến khác nếu cần
-            # "EMAIL_DR_AMY": "dr.reale@example.com", # Ví dụ
-            # "EMAIL_DR_JANE": "jane.pebble@example.com" # Ví dụ
+            "OPENAI_API_KEY": os.getenv("OPENAI_API_KEY"),
+            "WATI_API_ENDPOINT": os.getenv("WATI_API_ENDPOINT"),
+            "WATI_ACCESS_TOKEN": os.getenv("WATI_ACCESS_TOKEN"),
+            "GOOGLE_EMAIL_ADDRESS": os.getenv("GOOGLE_EMAIL_ADDRESS"),
+            "GOOGLE_APP_PASSWORD": os.getenv("GOOGLE_APP_PASSWORD"),
+            # "EMAIL_DR_AMY": "dr.reale@example.com",
+            # "EMAIL_DR_JANE": "jane.pebble@example.com"
         }
 
         self.application_secrets = secretsmanager.Secret(self, "ApplicationSecrets", # ID logic
             secret_name=f"{secret_prefix}/application_config", # Tên secret duy nhất
             description=f"Application configuration and secrets for Nightingale ({environment_name})",
-            # Sử dụng generate_secret_string để tạo secret với cấu trúc JSON
-            # Bạn sẽ cần cập nhật giá trị thực trong AWS Console sau khi deploy
             generate_secret_string=secretsmanager.SecretStringGenerator(
                 secret_string_template=json.dumps(secret_json_template), # Chuyển dict thành JSON string
                 generate_string_key="placeholder_for_initial_creation" # Key này không quan trọng, chỉ để CDK tạo secret
