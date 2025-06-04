@@ -34,7 +34,11 @@ class SchedulerStack(Stack):
                 iam.ManagedPolicy.from_aws_managed_policy_name("service-role/AWSLambdaVPCAccessExecutionRole")
             ]
         )
+
+        # Allow Lambda to read secrets
         db_credentials_secret.grant_read(lambda_base_role)
+        application_secrets_object = secretsmanager.Secret.from_secret_complete_arn(self, "ImportedApplicationSecrets", application_secrets_arn)
+        application_secrets_object.grant_read(lambda_base_role)
 
         common_lambda_env = {
             "DB_HOST": db_cluster.cluster_endpoint.hostname,

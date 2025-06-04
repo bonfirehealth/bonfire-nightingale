@@ -81,8 +81,8 @@ api_lambda_stack = ApiLambdaStack(app, f"NightingaleApiLambdaStack-{environment_
     message_queue=messaging_stack.message_queue,
     db_cluster=db_stack.db_cluster,
     db_credentials_secret=db_stack.db_credentials_secret,
-    application_secrets_arn=secrets_stack.application_secrets.secret_arn,
     db_name=db_name,
+    application_secrets_arn=secrets_stack.application_secrets.secret_arn,
     lambda_memory_ingest=lambda_memory_ingest,
     lambda_memory_process=lambda_memory_process,
     **stack_props
@@ -98,8 +98,8 @@ scheduler_stack = SchedulerStack(app, f"NightingaleSchedulerStack-{environment_n
     lambda_security_group=vpc_stack.lambda_security_group,
     db_cluster=db_stack.db_cluster,
     db_credentials_secret=db_stack.db_credentials_secret,
-    application_secrets_arn=secrets_stack.application_secrets.secret_arn,
     db_name=db_name,
+    application_secrets_arn=secrets_stack.application_secrets.secret_arn,
     lambda_memory_scheduled=lambda_memory_scheduled,
     **stack_props
 )

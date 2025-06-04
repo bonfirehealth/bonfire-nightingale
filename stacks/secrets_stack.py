@@ -18,6 +18,7 @@ class SecretsStack(Stack):
 
         secret_json_template = {
             "OPENAI_API_KEY": os.getenv("OPENAI_API_KEY"),
+            "OPENAI_ASSISTANT_ID": os.getenv("OPENAI_ASSISTANT_ID"),
             "WATI_API_ENDPOINT": os.getenv("WATI_API_ENDPOINT"),
             "WATI_ACCESS_TOKEN": os.getenv("WATI_ACCESS_TOKEN"),
             "GOOGLE_EMAIL_ADDRESS": os.getenv("GOOGLE_EMAIL_ADDRESS"),

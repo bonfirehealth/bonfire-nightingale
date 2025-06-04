@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE TABLE IF NOT EXISTS conversations (
     conversation_id SERIAL PRIMARY KEY,
     user_id VARCHAR(255) NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+    openai_thread_id VARCHAR(255) UNIQUE,
     current_sst_step VARCHAR(100),             -- e.g., 'INIT', 'SST_STEP_1_FRAME', 'SST_COMPLETED_PENDING_FOLLOW_UP'
     conversation_state_json JSONB,             -- Stores temporary data, history, current context for OpenAI
                                                -- Example: {"history": [...], "user_initial_problem": "...", "user_insight_from_step3": "...", "next_step_action_proposed": "..."}
