@@ -5,6 +5,7 @@ from datetime import datetime, timezone, timedelta
 
 import psycopg2
 from config import get_secret
+from email_service import send_escalation_email
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -147,3 +148,31 @@ def log_progress_db(conn, user_id: str, action_taken: str, reported_outcome: str
         """,(user_id, outcome_id, action_taken, reported_outcome))
         conn.commit()
         logger.info(f"Progress logged for user {user_id}: {action_taken}")
+
+def update_user_wtw_status(conn, user_id: str, is_wtw_employee: bool = False) -> None:
+    with conn.cursor() as cur:
+        cur.execute("""
+            UPDATE users SET wtw_handbook_sent_at = NOW(), is_wtw_employee = %s
+            WHERE user_id = %s
+        """, (is_wtw_employee, user_id))
+        conn.commit()
+    logger.info(f"WTW handbook link sent to {user_id}")
+    return True # Indicated handled
+
+def update_user_escalation_status(conn, conversation_id: int, user_id: str) -> None:
+    logger.info(f"Escalation triggered for user {user_id}")
+    # Get user name
+    with conn.cursor() as cur:
+        cur.execute("SELECT name FROM users WHERE user_id = %s", (user_id,))
+        user_name = cur.fetchone()[0]
+    send_escalation_email(user_name) # Gửi email
+    logger.info(f"An escalation was triggered by a user. User name was: {user_name}")
+
+    # Cập nhật trạng thái conversation
+    if conversation_id:
+        with conn.cursor() as cur:
+            cur.execute("UPDATE conversations SET is_active = FALSE, escalated_at = NOW() WHERE conversation_id = %s", (conversation_id,))
+            conn.commit()
+        logger.info(f"Conversation {conversation_id} updated. Escalated at: {datetime.now(timezone.utc)}")
+        return True # Indicated handled
+    return False

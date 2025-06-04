@@ -23,8 +23,9 @@ class SecretsStack(Stack):
             "WATI_ACCESS_TOKEN": os.getenv("WATI_ACCESS_TOKEN"),
             "GOOGLE_EMAIL_ADDRESS": os.getenv("GOOGLE_EMAIL_ADDRESS"),
             "GOOGLE_APP_PASSWORD": os.getenv("GOOGLE_APP_PASSWORD"),
-            # "EMAIL_DR_AMY": "dr.reale@example.com",
-            # "EMAIL_DR_JANE": "jane.pebble@example.com"
+            "ESCALATION_EMAIL_RECIPIENTS": os.getenv("ESCALATION_EMAIL_RECIPIENTS"),
+            "ESCALATION_EMAIL_CC": os.getenv("ESCALATION_EMAIL_CC"),
+            "ESCALATION_EMAIL_SUBJECT": os.getenv("ESCALATION_EMAIL_SUBJECT")
         }
 
         self.application_secrets = secretsmanager.Secret(self, "ApplicationSecrets", # ID logic

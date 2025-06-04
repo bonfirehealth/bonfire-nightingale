@@ -32,48 +32,35 @@ def lambda_handler(event, context):
             logger.info(f"Received message from {user_name} ({user_id}): {user_message_text}")
 
             db_conn = database.get_db_connection()
-            db_user_profile = database.get_or_create_user(db_conn, user_id, user_name)
+            database.get_or_create_user(db_conn, user_id, user_name)
 
-            # 1. Check WTW
-            if workflow_handlers.check_wtw_request(user_message_text):
-                if not db_user_profile.get("wtw_handbook_sent_at"):
-                    # Truyền wati_service (hoặc client) vào nếu cần
-                    workflow_handlers.handle_wtw_response_actions(db_conn, user_id, app_conf)
-                else:
-                    wati_service.send_wati_message(user_id, "Handbook already sent...")
-                continue
-
-            # 2. Get/Create Conversation
+            # 1. Get/Create Conversation
             conversation = database.get_active_conversation_state(db_conn, user_id) or \
                            database.create_new_conversation(db_conn, user_id)
             current_conversation_id = conversation["conversation_id"]
             current_conversation_state_json = conversation.get("state_json", {"history": []})
 
-            # 3. Check Escalation
-            if workflow_handlers.check_escalation_keywords(user_message_text):
-                workflow_handlers.handle_escalation_actions(db_conn, user_id, user_message_text, current_conversation_id)
-                continue
-
-            # 4. Prepare for and Call OpenAI
+            # 2. Prepare for and Call OpenAI
             if not current_conversation_state_json.get("history"):
                 current_conversation_state_json["history"] = []
             current_conversation_state_json["history"].append({"role": "user", "content": user_message_text})
             ai_json_response = openai_service.call_openai_assistant(
                 current_conversation_id,
                 conversation.get("openai_thread_id"),
+                user_name,
                 user_message_text,
                 conversation.get("current_sst_step"),
                 db_conn
             )
 
-            # 5. Process AI Response
+            # 3. Process AI Response
             # process_ai_response sẽ chứa logic phức tạp để quyết định next_step, new_state, is_active
             # và gọi các service (wati, db) để thực hiện actions.
             processed_results = workflow_handlers.process_ai_response(
                 db_conn, user_id, current_conversation_id, current_conversation_state_json, ai_json_response
             )
             
-            # 6. Update conversation state in DB
+            # 4. Update conversation state in DB
             # processed_results sẽ chứa next_sst_step, new_state_for_db, is_conversation_active
             if processed_results:
                  # Giới hạn history trước khi lưu

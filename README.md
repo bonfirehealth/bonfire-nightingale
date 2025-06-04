@@ -2,7 +2,9 @@
 
 ## Prerequisites
 
-- Python 3.11
+- Python >= 3.11
+- Docker
+- NodeJS >= 22
 - AWS CLI
 - AWS CDK
 - AWS Account
@@ -23,7 +25,7 @@ aws configure
 npm install -g aws-cdk
 
 # Deploy the stack to dev environment
-cdk deploy
+./deploy.sh
 
 # Deploy the stack to prod environment
 cdk deploy --context environment_name=prod

@@ -78,6 +78,7 @@ def get_openai_client_instance() -> OpenAIClient:
 def call_openai_assistant(
     current_db_conversation_id: int,
     db_openai_thread_id: str,
+    user_name: str,
     user_message_text: str,
     current_sst_step: str,
     db_conn
@@ -103,7 +104,8 @@ def call_openai_assistant(
             logger.info(f"Associated new OpenAI thread {active_thread_id} with DB conversation {current_db_conversation_id}")
 
         # 2. Add the user's message to the thread
-        client.add_message_to_thread(thread_id=active_thread_id, content=user_message_text, role="user")
+        content = f"{user_name}: {user_message_text}"
+        client.add_message_to_thread(thread_id=active_thread_id, content=content, role="user")
 
         # 3. Create a Run
         run_response = client.create_run(thread_id=active_thread_id, assistant_id=assistant_id)
