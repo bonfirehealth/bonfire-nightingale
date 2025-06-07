@@ -30,3 +30,11 @@ npm install -g aws-cdk
 # Deploy the stack to prod environment
 cdk deploy --context environment_name=prod
 ```
+
+
+## Appendix
+
+### Install PostgreSQL client v10 on AWS Amazon Linux AMI
+```bash
+sudo amazon-linux-extras install postgresql10
+```

@@ -1,11 +1,7 @@
-import logging
-from config import app_conf
-
-logger = logging.getLogger()
-logger.setLevel(logging.INFO)
+from config import app_conf, logger
 
 # --- WATI API Helper ---
-def send_wati_message(recipient_id: str, message_text: str) -> bool:
+def send_message(recipient_id: str, message_text: str) -> bool:
     try:
         logger.info(f"Sending WATI message: `{message_text}` to {recipient_id}")
         wati_access_token = app_conf.get('WATI_ACCESS_TOKEN')
@@ -31,3 +27,6 @@ def send_wati_message(recipient_id: str, message_text: str) -> bool:
     except Exception as e:
         logger.error(f"Error sending WATI message: {e}")
         return False
+
+def send_image_message(recipient_id: str, image_url: str, caption: str = "") -> bool:
+    pass

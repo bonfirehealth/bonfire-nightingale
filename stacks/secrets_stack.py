@@ -25,7 +25,11 @@ class SecretsStack(Stack):
             "GOOGLE_APP_PASSWORD": os.getenv("GOOGLE_APP_PASSWORD"),
             "ESCALATION_EMAIL_RECIPIENTS": os.getenv("ESCALATION_EMAIL_RECIPIENTS"),
             "ESCALATION_EMAIL_CC": os.getenv("ESCALATION_EMAIL_CC"),
-            "ESCALATION_EMAIL_SUBJECT": os.getenv("ESCALATION_EMAIL_SUBJECT")
+            "ESCALATION_EMAIL_SUBJECT": os.getenv("ESCALATION_EMAIL_SUBJECT"),
+            "BOOKING_CONFIRMATION_EMAIL_RECIPIENTS": os.getenv("BOOKING_CONFIRMATION_EMAIL_RECIPIENTS"),
+            "BOOKING_CONFIRMATION_EMAIL_CC": os.getenv("BOOKING_CONFIRMATION_EMAIL_CC"),
+            "BOOKING_CONFIRMATION_EMAIL_SUBJECT": os.getenv("BOOKING_CONFIRMATION_EMAIL_SUBJECT"),
+            "WTW_PARENT_HANDBOOK_URL": os.getenv("WTW_PARENT_HANDBOOK_URL")
         }
 
         self.application_secrets = secretsmanager.Secret(self, "ApplicationSecrets", # ID logic

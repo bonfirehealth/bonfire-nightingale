@@ -1,100 +1,165 @@
 import json
-import logging
-import psycopg2
-import database
-import openai_service
-import wati_service
-import workflow_handlers
-from config import app_conf
+import traceback
 
-logger = logging.getLogger()
-logger.setLevel(logging.INFO)
+from services import database_service as db
+from services import openai_service as ai
+from services import wati_service as wati
+from services import email_service as email
+from datetime import datetime, timedelta
+from handlers import common_handler as cm_handler, concierge_handler as cc_handler, parenting_coach_handler as pc_handler
+from config import logger
 
 def lambda_handler(event, context):
-    logger.info(f"Received SQS event in {app_conf.get('ENVIRONMENT_NAME')}: {json.dumps(event, indent=2)}")
-    
-    # Load config một lần (config.py sẽ cache)
-    db_conn = None
-
-    for record in event.get('Records', []):
+    """
+    Main Lambda handler for processing Nightingale AI messages from SQS
+    """
+    try:
+        # ========================================
+        # 1. PARSE SQS MESSAGE
+        # ========================================
         try:
-            # parse WATI payload
-            wati_payload_str = record.get("body")
-            if not wati_payload_str:
-                logger.error("SQS record has no body.")
-                continue
-
-            wati_payload = json.loads(wati_payload_str)
-            user_id = wati_payload.get("waId")
-            user_message_text = wati_payload.get("text")
-            user_name = wati_payload.get("senderName")
-
-            logger.info(f"Received message from {user_name} ({user_id}): {user_message_text}")
-
-            db_conn = database.get_db_connection()
-            database.get_or_create_user(db_conn, user_id, user_name)
-
-            # 1. Get/Create Conversation
-            conversation = database.get_active_conversation_state(db_conn, user_id) or \
-                           database.create_new_conversation(db_conn, user_id)
-            current_conversation_id = conversation["conversation_id"]
-            current_conversation_state_json = conversation.get("state_json", {"history": []})
-
-            # 2. Prepare for and Call OpenAI
-            if not current_conversation_state_json.get("history"):
-                current_conversation_state_json["history"] = []
-            current_conversation_state_json["history"].append({"role": "user", "content": user_message_text})
-            ai_json_response = openai_service.call_openai_assistant(
-                current_conversation_id,
-                conversation.get("openai_thread_id"),
-                user_name,
-                user_message_text,
-                conversation.get("current_sst_step"),
-                db_conn
-            )
-
-            # 3. Process AI Response
-            # process_ai_response sẽ chứa logic phức tạp để quyết định next_step, new_state, is_active
-            # và gọi các service (wati, db) để thực hiện actions.
-            processed_results = workflow_handlers.process_ai_response(
-                db_conn, user_id, current_conversation_id, current_conversation_state_json, ai_json_response
-            )
+            # Extract message from SQS event
+            sqs_record = event["Records"][0]  # Assuming single message processing
+            message_body = json.loads(sqs_record["body"])
+            logger.info(f"Received SQS message: {message_body}")
             
-            # 4. Update conversation state in DB
-            # processed_results sẽ chứa next_sst_step, new_state_for_db, is_conversation_active
-            if processed_results:
-                 # Giới hạn history trước khi lưu
-                if "history" in processed_results["new_state_for_db"]:
-                    processed_results["new_state_for_db"]["history"] = processed_results["new_state_for_db"]["history"][-20:]
-
-                database.update_conversation_state(
-                    db_conn, current_conversation_id,
-                    processed_results["next_sst_step"],
-                    processed_results["new_state_for_db"],
-                    is_active=processed_results["is_conversation_active"]
-                )
-
-        except psycopg2.Error as db_err: # Lỗi DB cụ thể
-            logger.error(f"Database error processing SQS record: {db_err}", exc_info=True)
-            if db_conn: db_conn.rollback() # Quan trọng: rollback nếu có lỗi DB
-            # Quyết định có re-queue message không (bằng cách raise error lại)
-            # Hoặc nếu lỗi là tạm thời, có thể không raise để SQS tự retry sau visibility timeout
-            # Nếu lỗi nghiêm trọng, message sẽ vào DLQ sau vài lần retry
-            # raise db_err # Để SQS retry
+            whatsapp_id = message_body["waId"]
+            user_name = message_body.get("senderName")
+            user_message = message_body["text"]
+            
         except Exception as e:
-            logger.error(f"Generic error processing SQS record: {e}", exc_info=True)
-            if db_conn and not db_conn.closed: db_conn.rollback()
-            # raise e # Để SQS retry
-        finally:
-            # Quản lý db_conn
-            pass
-    
-    if db_conn and not db_conn.closed:
-        db_conn.close()
-        logger.info("DB connection closed at the end of Lambda invocation.")
+            logger.error(f"Failed to parse SQS message: {str(e)}\n{traceback.format_exc()}")
+            return error_response(f"Failed to parse SQS message: {str(e)}")
+
+        # ========================================
+        # 2. DATABASE CONNECTION & USER LOOKUP
+        # ========================================
         db_conn = None
+        try:
+            db_conn = db.get_db_connection()
+            # Get or create user conversation
+            user = db.get_or_create_user(db_conn, whatsapp_id)
+            logger.debug(f"User found: {user}")
+            conversation = db.get_or_create_conversation(db_conn, user["id"])
+            logger.debug(f"Conversation found: {conversation}")
+            conversation_id = conversation["id"]
             
+        except Exception as e:
+            logger.error(f"Database error: {str(e)}\n{traceback.format_exc()}")
+            return error_response(f"Database error: {str(e)}")
+
+        try:
+            # ========================================
+            # 3. BUILD AI CONTEXT
+            # ========================================
+            user["name"] = user_name
+            ai_context = ai.build_ai_context(
+                conversation_id=conversation_id,
+                user=user,
+                conversation_history=db.get_recent_messages(db_conn, conversation_id, limit=10),
+                trial_status=db.check_trial_status(db_conn, user["id"]),
+                user_message=user_message
+            )
+            try:
+                logger.info(f"Calling AI with context: {ai_context}")
+                ai_json = ai.get_ai_response(
+                    input_context=ai_context
+                )
+                
+            except Exception as e:
+                logger.error(f"AI error: {str(e)}\n{traceback.format_exc()}")
+                # Fallback response if AI fails
+                ai_json = create_fallback_response()
+
+            # ========================================
+            # 5. SAVE MESSAGE TO DATABASE
+            # ========================================
+            logger.debug(f"Saving user message to database: {user_message}")
+            db.save_message(db_conn, conversation_id, "user", user_message, "text")
+            logger.debug(f"Saving AI response to database: {ai_json['message']}")
+            db.save_message(db_conn, conversation_id, "nightingale", ai_json["message"], "text")
+
+            # ========================================
+            # 6-9. PROCESS ACTIONS & WORKFLOWS
+            # ========================================
+            try:
+                process_workflows(db_conn, conversation_id, user, ai_json)
+            except Exception as e:
+                logger.error(f"Error in process_workflows: {str(e)}\n{traceback.format_exc()}")
+                # Continue execution even if workflow processing fails
+
+            # ========================================
+            # 10. SEND RESPONSE
+            # ========================================
+            response_payload = {
+                "conversation_id": conversation_id,
+                "ai_response": ai_json,
+                "timestamp": datetime.utcnow().isoformat()
+            }
+            
+            wati.send_message(user["whatsapp_id"], ai_json["message"])
+            return success_response(response_payload)
+
+        except Exception as e:
+            logger.error(f"Unexpected error in lambda_handler: {str(e)}\n{traceback.format_exc()}")
+            return error_response("An unexpected error occurred")
+
+        finally:
+            # Ensure database connection is always closed
+            if db_conn:
+                try:
+                    db_conn.close()
+                except Exception as e:
+                    logger.error(f"Error closing database connection: {str(e)}\n{traceback.format_exc()}")
+    
+    except Exception as e:
+        # Catch-all for any unhandled exceptions
+        logger.critical(f"Critical error in lambda_handler: {str(e)}\n{traceback.format_exc()}")
+        return error_response("A critical error occurred")
+
+def process_workflows(db_conn, conversation_id, user, ai_json):
+    """Process all AI-triggered workflows"""
+    # 6. Process AI Actions
+    action_result = process_ai_action(db_conn, conversation_id, user["id"], ai_json)
+    if action_result:
+        ai_json["data"].update(action_result)
+
+    # 7. Handle Special Workflows
+    if ai_json["flags"]["crisis_detected"]:
+        handle_crisis_workflow(db_conn, conversation_id, user["id"], ai_json)
+
+def process_ai_action(db_conn, conversation_id, user_id, ai_json):
+    """
+    Main action processor - routes to specific handlers based on action type
+    Returns additional data to merge with AI response
+    """
+    action = ai_json["action"]
+    
+    action_handlers = {
+        "initial_greeting": cm_handler.handle_initial_greeting,
+        "general_purpose": cm_handler.handle_general_purpose,
+        "switch_to_coaching": cm_handler.handle_switch_to_coaching,
+        "switch_to_concierge": cm_handler.handle_switch_to_concierge,
+        "start_sst_framework": pc_handler.handle_start_sst_framework,
+        "coaching_session_complete": pc_handler.handle_coaching_session_complete,
+        "collect_booking_info": cc_handler.handle_collect_booking_info,
+        "data_collection_complete": cc_handler.handle_data_collection_complete,
+        "send_to_clinics": cc_handler.handle_send_to_clinics,
+    }
+    
+    handler = action_handlers.get(action, handle_general_action)
+    return handler(db_conn, conversation_id, user_id, ai_json)
+
+def success_response(data):
+    """Format successful Lambda response"""
     return {
-        'statusCode': 200,
-        'body': json.dumps({'message': 'Message processed successfully'})
+        "statusCode": 200,
+        "body": json.dumps(data)
+    }
+
+def error_response(error_message):
+    """Format error Lambda response"""
+    return {
+        "statusCode": 500,
+        "body": json.dumps({"error": error_message})
     }

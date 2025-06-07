@@ -9,6 +9,7 @@ from aws_cdk import (
     aws_secretsmanager as secretsmanager,
     aws_iam as iam,
     aws_lambda_event_sources as lambda_event_sources,
+    aws_scheduler as scheduler,  # Add this import for EventBridge Scheduler
     Duration,
     BundlingOptions,
     RemovalPolicy,
@@ -29,24 +30,76 @@ class ApiLambdaStack(Stack):
                  is_prod: bool,
                  lambda_memory_ingest: int,
                  lambda_memory_process: int,
+                 nudge_executor_function_arn: str,
                  **kwargs) -> None:
         super().__init__(scope, construct_id, **kwargs)
 
         lambda_memory_ingest_val = lambda_memory_ingest
         lambda_memory_process_val = lambda_memory_process
 
-        # IAM Role for Lambda functions
-        lambda_base_role = iam.Role(self, "LambdaBaseRole",
+        ingest_lambda_role = iam.Role(self, "IngestLambdaRole",
             assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
             managed_policies=[
                 iam.ManagedPolicy.from_aws_managed_policy_name("service-role/AWSLambdaBasicExecutionRole"),
                 iam.ManagedPolicy.from_aws_managed_policy_name("service-role/AWSLambdaVPCAccessExecutionRole")
             ]
         )
-        # Allow Lambda to read secrets
-        db_credentials_secret.grant_read(lambda_base_role)
+        db_credentials_secret.grant_read(ingest_lambda_role)
         application_secrets_object = secretsmanager.Secret.from_secret_complete_arn(self, "ImportedApplicationSecrets", application_secrets_arn)
-        application_secrets_object.grant_read(lambda_base_role)
+        application_secrets_object.grant_read(ingest_lambda_role)
+        message_queue.grant_send_messages(ingest_lambda_role)
+
+        # Role cho ProcessFunction
+        process_lambda_role = iam.Role(self, "ProcessLambdaRole",
+            assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
+            managed_policies=[
+                iam.ManagedPolicy.from_aws_managed_policy_name("service-role/AWSLambdaBasicExecutionRole"),
+                iam.ManagedPolicy.from_aws_managed_policy_name("service-role/AWSLambdaVPCAccessExecutionRole")
+            ]
+        )
+        db_credentials_secret.grant_read(process_lambda_role)
+        application_secrets_object.grant_read(process_lambda_role)
+        message_queue.grant_consume_messages(process_lambda_role)
+
+        # 1. Tạo IAM Role mà EventBridge Scheduler sẽ sử dụng để gọi Lambda Executor.
+        scheduler_role = iam.Role(self, "EventBridgeSchedulerRole",
+            assumed_by=iam.ServicePrincipal("scheduler.amazonaws.com"),
+            description="IAM Role for EventBridge Scheduler to invoke Nudge Executor Lambda"
+        )
+        # Cấp quyền cho Role này để gọi Lambda Executor (nudge_executor_function)
+        scheduler_role.add_to_policy(iam.PolicyStatement(
+            effect=iam.Effect.ALLOW,
+            actions=["lambda:InvokeFunction"],
+            resources=[nudge_executor_function_arn]
+        ))
+
+        # 2. Tạo một Schedule Group để quản lý tất cả các schedule của trial.
+        # FIXED: Use EventBridge Scheduler's CfnScheduleGroup instead of iam.CfnGroup
+        schedule_group = scheduler.CfnScheduleGroup(self, "NightingaleTrialScheduleGroup",
+            name=f"nightingale-trial-schedules-{environment_name}"
+        )
+
+        # 3. Cho phép ProcessFunction tạo/xóa schedule TRONG group đã tạo ở trên.
+        process_lambda_role.add_to_policy(iam.PolicyStatement(
+            effect=iam.Effect.ALLOW,
+            actions=[
+                "scheduler:CreateSchedule",
+                "scheduler:DeleteSchedule",
+                "scheduler:UpdateSchedule",
+                "scheduler:GetSchedule"
+            ],
+            resources=[
+                f"arn:aws:scheduler:{self.region}:{self.account}:schedule/{schedule_group.name}/*"
+            ]
+        ))
+        
+        # 4. Cấp quyền iam:PassRole. Rất quan trọng!
+        # Lambda cần quyền này để "giao" `scheduler_role` cho dịch vụ EventBridge.
+        process_lambda_role.add_to_policy(iam.PolicyStatement(
+            effect=iam.Effect.ALLOW,
+            actions=["iam:PassRole"],
+            resources=[scheduler_role.role_arn]
+        ))
 
         # Environment variables for Lambda functions
         common_lambda_env = {
@@ -57,17 +110,9 @@ class ApiLambdaStack(Stack):
             "APPLICATION_SECRETS_ARN": application_secrets_arn,
             "MESSAGE_QUEUE_URL": message_queue.queue_url,
             "ENVIRONMENT_NAME": environment_name,
-            # "EMAIL_DR_AMY": kwargs.get("email_dr_amy", ""), # Get from kwargs if passed in
-            # "EMAIL_DR_JANE": kwargs.get("email_dr_jane", "")
         }
 
-        # Lambda IngestFunction
-        ingest_function_policy_statement = iam.PolicyStatement(
-            actions=["sqs:SendMessage"],
-            resources=[message_queue.queue_arn]
-        )
-        lambda_base_role.add_to_policy(ingest_function_policy_statement)
-
+        # Ingest Function
         ingest_function = lambda_.Function(self, "IngestFunction",
             runtime=lambda_.Runtime.PYTHON_3_11,
             handler="app.lambda_handler",
@@ -86,7 +131,7 @@ class ApiLambdaStack(Stack):
             vpc=vpc,
             vpc_subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS),
             security_groups=[lambda_security_group],
-            role=lambda_base_role,
+            role=ingest_lambda_role,
             timeout=Duration.seconds(60 if is_prod else 30),
             memory_size=lambda_memory_ingest_val,
             environment={
@@ -94,15 +139,8 @@ class ApiLambdaStack(Stack):
                 "MESSAGE_QUEUE_URL": message_queue.queue_url
             },
         )
-        message_queue.grant_send_messages(ingest_function)
 
-        # Lambda ProcessFunction
-        process_function_policy_statement = iam.PolicyStatement(
-            actions=["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:GetQueueAttributes"],
-            resources=[message_queue.queue_arn]
-        )
-        lambda_base_role.add_to_policy(process_function_policy_statement)
-
+        # Process Function
         process_function = lambda_.Function(self, "ProcessFunction",
             runtime=lambda_.Runtime.PYTHON_3_11,
             handler="app.lambda_handler",
@@ -118,8 +156,14 @@ class ApiLambdaStack(Stack):
             vpc=vpc,
             vpc_subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS),
             security_groups=[lambda_security_group],
-            environment=common_lambda_env,
-            role=lambda_base_role,
+            environment={
+                **common_lambda_env,
+                "MESSAGE_QUEUE_URL": message_queue.queue_url,
+                "NUDGE_EXECUTOR_LAMBDA_ARN": nudge_executor_function_arn,
+                "EVENTBRIDGE_SCHEDULER_ROLE_ARN": scheduler_role.role_arn,
+                "SCHEDULE_GROUP_NAME": schedule_group.name  # Use .name instead of .group_name
+            },
+            role=process_lambda_role,
             timeout=Duration.minutes(5 if is_prod else 3), # OpenAI may take time
             memory_size=lambda_memory_process_val,
         )
@@ -129,7 +173,6 @@ class ApiLambdaStack(Stack):
         process_function.add_event_source(
             lambda_event_sources.SqsEventSource(message_queue,
                 batch_size=1,  # Xử lý 1 message mỗi lần invoke Lambda, phù hợp cho chatbot
-                # max_batching_window=Duration.minutes(1), # Tùy chọn
                 report_batch_item_failures=True # Quan trọng để xử lý lỗi từng phần trong batch
             )
         )

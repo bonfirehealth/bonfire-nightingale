@@ -6,7 +6,7 @@ from stacks.secrets_stack import SecretsStack
 from stacks.database_stack import DatabaseStack
 from stacks.messaging_stack import MessagingStack
 from stacks.api_lambda_stack import ApiLambdaStack
-from stacks.scheduler_stack import SchedulerStack
+from stacks.nudge_executor_stack import NudgeExecutorStack
 from stacks.ec2_stack import BastionEc2Stack
 
 app = cdk.App()
@@ -21,9 +21,6 @@ is_prod = environment_name == "prod"
 rds_username = app.node.try_get_context("rds_username")
 db_name_prefix = app.node.try_get_context("db_name_prefix")
 db_name = f"{db_name_prefix}_{environment_name}"
-
-# email_dr_amy = app.node.try_get_context("email_dr_amy") # Example
-# email_dr_jane = app.node.try_get_context("email_dr_jane") # Example
 
 lambda_memory_ingest = app.node.try_get_context(f"{environment_name}:lambda_memory_ingest") or 256
 lambda_memory_process = app.node.try_get_context(f"{environment_name}:lambda_memory_process") or 512
@@ -74,6 +71,22 @@ messaging_stack = MessagingStack(app, f"NightingaleMessagingStack-{environment_n
     **stack_props
 )
 
+# Stack for Nudge Executor Function
+nudge_executor_stack = NudgeExecutorStack(app, f"NightingaleNudgeExecutorStack-{environment_name}",
+    vpc=vpc_stack.vpc,
+    lambda_security_group=vpc_stack.lambda_security_group,
+    db_cluster=db_stack.db_cluster,
+    db_credentials_secret=db_stack.db_credentials_secret,
+    db_name=db_name,
+    application_secrets_arn=secrets_stack.application_secrets.secret_arn,
+    lambda_memory_scheduled=lambda_memory_scheduled,
+    **stack_props
+)
+nudge_executor_stack.add_dependency(vpc_stack)
+nudge_executor_stack.add_dependency(db_stack)
+nudge_executor_stack.add_dependency(secrets_stack)
+
+
 # Stack for API Gateway and Lambda functions
 api_lambda_stack = ApiLambdaStack(app, f"NightingaleApiLambdaStack-{environment_name}",
     vpc=vpc_stack.vpc,
@@ -85,26 +98,13 @@ api_lambda_stack = ApiLambdaStack(app, f"NightingaleApiLambdaStack-{environment_
     application_secrets_arn=secrets_stack.application_secrets.secret_arn,
     lambda_memory_ingest=lambda_memory_ingest,
     lambda_memory_process=lambda_memory_process,
+    nudge_executor_function_arn=nudge_executor_stack.nudge_executor_function.function_arn,
     **stack_props
 )
 api_lambda_stack.add_dependency(vpc_stack)
 api_lambda_stack.add_dependency(db_stack)
 api_lambda_stack.add_dependency(messaging_stack)
 api_lambda_stack.add_dependency(secrets_stack)
-
-# Stack for Scheduled Tasks
-scheduler_stack = SchedulerStack(app, f"NightingaleSchedulerStack-{environment_name}",
-    vpc=vpc_stack.vpc,
-    lambda_security_group=vpc_stack.lambda_security_group,
-    db_cluster=db_stack.db_cluster,
-    db_credentials_secret=db_stack.db_credentials_secret,
-    db_name=db_name,
-    application_secrets_arn=secrets_stack.application_secrets.secret_arn,
-    lambda_memory_scheduled=lambda_memory_scheduled,
-    **stack_props
-)
-scheduler_stack.add_dependency(vpc_stack)
-scheduler_stack.add_dependency(db_stack)
-scheduler_stack.add_dependency(secrets_stack)
+api_lambda_stack.add_dependency(nudge_executor_stack)
 
 app.synth()
