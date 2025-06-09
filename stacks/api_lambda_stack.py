@@ -61,6 +61,17 @@ class ApiLambdaStack(Stack):
         application_secrets_object.grant_read(process_lambda_role)
         message_queue.grant_consume_messages(process_lambda_role)
 
+        # Role cho Stripe Webhook Lambda
+        stripe_lambda_role = iam.Role(self, "StripeWebhookLambdaRole",
+            assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
+            managed_policies=[
+                iam.ManagedPolicy.from_aws_managed_policy_name("service-role/AWSLambdaBasicExecutionRole"),
+                iam.ManagedPolicy.from_aws_managed_policy_name("service-role/AWSLambdaVPCAccessExecutionRole")
+            ]
+        )
+        db_credentials_secret.grant_read(stripe_lambda_role)
+        application_secrets_object.grant_read(stripe_lambda_role)
+
         # 1. Create IAM Role for EventBridge Scheduler to invoke Nudge Executor Lambda
         scheduler_role = iam.Role(self, "EventBridgeSchedulerRole",
             assumed_by=iam.ServicePrincipal("scheduler.amazonaws.com"),
@@ -176,13 +187,38 @@ class ApiLambdaStack(Stack):
             )
         )
 
+        # Stripe Webhook Function
+        stripe_webhook_function = lambda_.Function(self, "StripeWebhookFunction",
+            runtime=lambda_.Runtime.PYTHON_3_11,
+            handler="app.lambda_handler",
+            code=lambda_.Code.from_asset(
+                "src/stripe_webhook_function",
+                bundling=BundlingOptions(
+                    image=lambda_.Runtime.PYTHON_3_11.bundling_image,
+                    command=[
+                        "bash", "-c", (
+                            "pip install -r requirements.txt -t /asset-output && "
+                            "cp -au . /asset-output"
+                        )
+                    ]
+                )
+            ),
+            vpc=vpc,
+            vpc_subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS),
+            security_groups=[lambda_security_group],
+            role=stripe_lambda_role,
+            timeout=Duration.seconds(60),
+            memory_size=256,
+            environment=common_lambda_env,
+        )
+
         # API Gateway (HTTP API)
         http_api = apigwv2.HttpApi(self, "NightingaleHttpApi",
             description=f"HTTP API for Nightingale Webhook for {environment_name}",
             cors_preflight=apigwv2.CorsPreflightOptions( # Configure CORS if needed
-                allow_headers=["Content-Type", "X-Amz-Date", "Authorization", "X-Api-Key"],
+                allow_headers=["Content-Type", "X-Amz-Date", "Authorization", "X-Api-Key", "Stripe-Signature"],
                 allow_methods=[apigwv2.CorsHttpMethod.POST, apigwv2.CorsHttpMethod.OPTIONS],
-                allow_origins=["*"], # Or specify WATI domain
+                allow_origins=["*"], # Or specify domains
                 max_age=Duration.days(1)
             )
         )
@@ -190,10 +226,21 @@ class ApiLambdaStack(Stack):
         # Integration between API Gateway and IngestFunction
         ingest_integration = apigwv2_integrations.HttpLambdaIntegration("IngestIntegration", ingest_function)
 
+        # Integration between API Gateway and Stripe Webhook Function
+        stripe_integration = apigwv2_integrations.HttpLambdaIntegration("StripeIntegration", stripe_webhook_function)
+
         http_api.add_routes(
             path="/webhook/wati", # Endpoint for WATI webhook
             methods=[apigwv2.HttpMethod.POST],
             integration=ingest_integration
         )
 
+        # Add Stripe webhook endpoint
+        http_api.add_routes(
+            path="/webhook/stripe", # Endpoint for Stripe webhook
+            methods=[apigwv2.HttpMethod.POST],
+            integration=stripe_integration
+        )
+
         CfnOutput(self, "ApiGatewayUrl", value=http_api.url)
+        CfnOutput(self, "StripeWebhookUrl", value=f"{http_api.url}webhook/stripe")

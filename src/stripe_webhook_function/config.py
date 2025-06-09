@@ -13,14 +13,6 @@ APPLICATION_SECRETS_ARN = os.environ.get("APPLICATION_SECRETS_ARN") # ARN of Sec
 secrets_client = boto3.client("secretsmanager")
 
 def get_secret(secret_arn: str) -> dict:
-    """Get a secret from AWS Secrets Manager.
-
-    Args:
-        secret_arn (str): The ARN of the secret.
-
-    Returns:
-        dict: The secret.
-    """
     try:
         logger.info(f"Fetching secret {secret_arn}")
         response = secrets_client.get_secret_value(SecretId=secret_arn)
@@ -52,30 +44,7 @@ OPENAI_ASSISTANT_ID = app_conf.get("OPENAI_ASSISTANT_ID")
 WATI_API_ENDPOINT = app_conf.get("WATI_API_ENDPOINT")
 WATI_ACCESS_TOKEN = app_conf.get("WATI_ACCESS_TOKEN")
 
-# --- Google ---
-GOOGLE_EMAIL_ADDRESS = app_conf.get("GOOGLE_EMAIL_ADDRESS")
-GOOGLE_APP_PASSWORD = app_conf.get("GOOGLE_APP_PASSWORD")
-ESCALATION_EMAIL_RECIPIENTS = app_conf.get("ESCALATION_EMAIL_RECIPIENTS")
-ESCALATION_EMAIL_CC = app_conf.get("ESCALATION_EMAIL_CC")
-ESCALATION_EMAIL_SUBJECT = app_conf.get("ESCALATION_EMAIL_SUBJECT")
-
-# --- Booking Confirmation ---
-BOOKING_CONFIRMATION_EMAIL_RECIPIENTS = app_conf.get("BOOKING_CONFIRMATION_EMAIL_RECIPIENTS")
-BOOKING_CONFIRMATION_EMAIL_CC = app_conf.get("BOOKING_CONFIRMATION_EMAIL_CC")
-BOOKING_CONFIRMATION_EMAIL_SUBJECT = app_conf.get("BOOKING_CONFIRMATION_EMAIL_SUBJECT")
-
-# --- Scheduler (Concierge) ---
-NUDGE_EXECUTOR_LAMBDA_ARN = os.environ.get("NUDGE_EXECUTOR_LAMBDA_ARN")
-EVENTBRIDGE_SCHEDULER_ROLE_ARN = os.environ.get("EVENTBRIDGE_SCHEDULER_ROLE_ARN")
-SCHEDULE_GROUP_NAME = os.environ.get("SCHEDULE_GROUP_NAME")
-
-# --- WTW Parent Handbook ---
-WTW_PARENT_HANDBOOK_URL = app_conf.get("WTW_PARENT_HANDBOOK_URL")
-
 # --- Stripe ---
+STRIPE_PUBLIC_KEY = app_conf.get("STRIPE_PUBLIC_KEY")
 STRIPE_SECRET_KEY = app_conf.get("STRIPE_SECRET_KEY")
-STRIPE_WEBHOOK_SUCCESS_URL = app_conf.get("STRIPE_WEBHOOK_SUCCESS_URL")
-STRIPE_WEBHOOK_CANCEL_URL = app_conf.get("STRIPE_WEBHOOK_CANCEL_URL")
-
-# --- System Prompt ---
-SYSTEM_PROMPT = ""
+STRIPE_WEBHOOK_SECRET = app_conf.get("STRIPE_WEBHOOK_SECRET")

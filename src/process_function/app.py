@@ -75,8 +75,11 @@ def lambda_handler(event: dict, context: dict) -> dict:
             conn.commit()
             
             # 11. Send the reply back to the user via Wati
-            logger.debug(f"Sending AI reply to user {user_phone}")
-            wati.send_wati_message(user_phone, ai_reply_text)
+            if not ai_response.get("data", {}).get("suppress_message", False):
+                logger.debug(f"Sending AI reply to user {user_phone}")
+                wati.send_wati_message(user_phone, ai_reply_text)
+            else:
+                logger.debug(f"Suppressing AI reply for parent {parent_id}")
 
         return {"statusCode": 200, "body": "Message processed successfully"}
     
@@ -271,6 +274,39 @@ def handle_trigger_escalation(cursor: Psycopg2Cursor, parent_id: int, data: Dict
         # Re-raise the error to allow lambda_handler to catch and rollback the transaction
         raise
 
+def handle_provide_subscription_link(cursor: Psycopg2Cursor, parent_id: int, data: Dict[str, Any]) -> None:
+    try:
+        import stripe
+        reply_to_user = f"Here is the link to subscribe the plan: "
+
+        stripe.api_key = os.getenv("STRIPE_SECRET_KEY")
+        session = stripe.checkout.Session.create(
+            line_items=[
+                {
+                    "name": "Parenting Coach Plan",
+                    "description": "Monthly subscription for parenting coach",
+                    "images": ["https://example.com/logo.png"],
+                    "amount": 1000,
+                    "currency": "usd",
+                    "quantity": 1,
+                }
+            ],
+            mode="subscription",
+            client_reference_id=parent_id,
+            success_url="https://example.com/success",
+            cancel_url="https://example.com/cancel",
+        )
+
+        parent_info = db.get_parent_info(cursor, parent_id)
+        email.send_subscription_link(parent_info["whatsapp_id"], parent_info["full_name"])
+        logger.info(f"Sent subscription link to parent {parent_id}")
+    except Exception as e:
+        # Log the specific error that occurred during action processing
+        error_traceback = traceback.format_exc()
+        logger.error(f"Error processing action 'provide_subscription_link' for parent {parent_id}: {e}\nTraceback:\n{error_traceback}")
+        # Re-raise the error to allow lambda_handler to catch and rollback the transaction
+        raise
+
 ACTION_HANDLERS = {
     "continue_conversation": handle_continue_conversation,
     "send_to_clinics": handle_send_to_clinics,
@@ -279,6 +315,7 @@ ACTION_HANDLERS = {
     "schedule_followup": handle_schedule_followup,
     "schedule_monthly_summary": handle_schedule_monthly_summary,
     "trigger_escalation": handle_trigger_escalation,
+    "provide_subscription_link": handle_provide_subscription_link,
 }
 
 def process_ai_actions(cursor: Psycopg2Cursor, parent_id: int, ai_response: Dict[str, Any]) -> None:

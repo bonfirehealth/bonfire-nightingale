@@ -47,6 +47,7 @@ Your entire response must be a single JSON object with the following structure:
   "next_mode": "string",
   "next_step": "string",
   "data": {{
+    "suppress_message": "boolean", // Optional, only for `provide_subscription_link` action
     "trial_activated": "boolean",  // Optional, set to true if user started a coaching session for the first time
   }}
 }}
@@ -286,11 +287,11 @@ Otherwise:
 --- Handle Subscription
 If user would like to subscribe the plan, send the Stripe link
 {{
-    "reply_to_user": "",
-    "action": "continue_conversation",
+    "reply_to_user": "Here is the link to subscribe the plan: ",  // **DO NOT** include the link here (it will be added by the system)
+    "action": "provide_subscription_link",
     "next_mode": "chat",
     "next_step": "none",
-    "data": {{}}
+    "data": {{"suppress_message": true}}
 }}
 
 ---

@@ -17,19 +17,35 @@ class SecretsStack(Stack):
         secret_prefix = f"nightingale/{environment_name}"
 
         secret_json_template = {
+            # OpenAI
             "OPENAI_API_KEY": os.getenv("OPENAI_API_KEY"),
             "OPENAI_ASSISTANT_ID": os.getenv("OPENAI_ASSISTANT_ID"),
+
+            # WATI
             "WATI_API_ENDPOINT": os.getenv("WATI_API_ENDPOINT"),
             "WATI_ACCESS_TOKEN": os.getenv("WATI_ACCESS_TOKEN"),
+
+            # Google
             "GOOGLE_EMAIL_ADDRESS": os.getenv("GOOGLE_EMAIL_ADDRESS"),
             "GOOGLE_APP_PASSWORD": os.getenv("GOOGLE_APP_PASSWORD"),
+
+            # Email
             "ESCALATION_EMAIL_RECIPIENTS": os.getenv("ESCALATION_EMAIL_RECIPIENTS"),
             "ESCALATION_EMAIL_CC": os.getenv("ESCALATION_EMAIL_CC"),
             "ESCALATION_EMAIL_SUBJECT": os.getenv("ESCALATION_EMAIL_SUBJECT"),
             "BOOKING_CONFIRMATION_EMAIL_RECIPIENTS": os.getenv("BOOKING_CONFIRMATION_EMAIL_RECIPIENTS"),
             "BOOKING_CONFIRMATION_EMAIL_CC": os.getenv("BOOKING_CONFIRMATION_EMAIL_CC"),
             "BOOKING_CONFIRMATION_EMAIL_SUBJECT": os.getenv("BOOKING_CONFIRMATION_EMAIL_SUBJECT"),
-            "WTW_PARENT_HANDBOOK_URL": os.getenv("WTW_PARENT_HANDBOOK_URL")
+
+            # WTW
+            "WTW_PARENT_HANDBOOK_URL": os.getenv("WTW_PARENT_HANDBOOK_URL"),
+
+            # Stripe
+            "STRIPE_PUBLIC_KEY": os.getenv("STRIPE_PUBLIC_KEY"),
+            "STRIPE_SECRET_KEY": os.getenv("STRIPE_SECRET_KEY"),
+            "STRIPE_WEBHOOK_SECRET": os.getenv("STRIPE_WEBHOOK_SECRET"),
+            "STRIPE_WEBHOOK_SUCCESS_URL": os.getenv("STRIPE_WEBHOOK_SUCCESS_URL"),
+            "STRIPE_WEBHOOK_CANCEL_URL": os.getenv("STRIPE_WEBHOOK_CANCEL_URL")
         }
 
         self.application_secrets = secretsmanager.Secret(self, "ApplicationSecrets", # ID logic

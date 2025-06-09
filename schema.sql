@@ -203,6 +203,23 @@ CREATE TABLE messages (
 
 COMMENT ON TABLE messages IS 'Stores all messages between the bot and the user.';
 
+-- ---------------------------------
+-- SUBSCRIPTIONS TABLE
+-- Table for storing subscription information
+-- ---------------------------------
+CREATE TABLE subscriptions (
+    id SERIAL PRIMARY KEY,
+    stripe_subscription_id VARCHAR(255) UNIQUE NOT NULL,
+    stripe_customer_id VARCHAR(255) NOT NULL,
+    customer_email VARCHAR(255),
+    status VARCHAR(50) NOT NULL,
+    current_period_start INTEGER,
+    current_period_end INTEGER,
+
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 
 -- ---------------------------------
 -- PAYMENTS TABLE
@@ -213,14 +230,20 @@ CREATE TABLE payments (
     parent_id BIGINT NOT NULL REFERENCES parents(id) ON DELETE CASCADE,
     appointment_id BIGINT REFERENCES appointments(id) ON DELETE SET NULL, -- Nullable, for subscription payments.
     
-    stripe_charge_id VARCHAR(255) UNIQUE NOT NULL, -- The unique transaction ID from Stripe.
+    stripe_payment_intent_id VARCHAR(255) UNIQUE NOT NULL, -- The unique transaction ID from Stripe.
+    stripe_customer_id VARCHAR(255),
+    customer_email VARCHAR(255),
+    customer_name VARCHAR(255),
     amount DECIMAL(10, 2) NOT NULL,
     currency VARCHAR(3) NOT NULL,
     
     payment_type payment_type_enum NOT NULL,
+    payment_method VARCHAR(50),
     status payment_status_enum NOT NULL,
-    
-    payment_date TIMESTAMPTZ NOT NULL DEFAULT NOW()
+
+    failure_reason TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 COMMENT ON TABLE payments IS 'Logs all payment transactions from Stripe.';
@@ -254,18 +277,25 @@ COMMENT ON TABLE escalation_logs IS 'A critical log of all safety-related escala
 -- Creating indexes on foreign keys and frequently queried columns improves query performance.
 -- =================================================================
 
-CREATE INDEX idx_parents_whatsapp_id ON parents(whatsapp_id);
-CREATE INDEX idx_parents_email ON parents(email);
+CREATE INDEX IF NOT EXISTS idx_parents_whatsapp_id ON parents(whatsapp_id);
+CREATE INDEX IF NOT EXISTS idx_parents_email ON parents(email);
 
-CREATE INDEX idx_appointments_parent_id ON appointments(parent_id);
-CREATE INDEX idx_appointments_status ON appointments(status);
+CREATE INDEX IF NOT EXISTS idx_appointments_parent_id ON appointments(parent_id);
+CREATE INDEX IF NOT EXISTS idx_appointments_status ON appointments(status);
 
-CREATE INDEX idx_coaching_sessions_parent_id ON coaching_sessions(parent_id);
+CREATE INDEX IF NOT EXISTS idx_coaching_sessions_parent_id ON coaching_sessions(parent_id);
 
-CREATE INDEX idx_payments_parent_id ON payments(parent_id);
-CREATE INDEX idx_payments_appointment_id ON payments(appointment_id);
+CREATE INDEX IF NOT EXISTS idx_payments_parent_id ON payments(parent_id);
+CREATE INDEX IF NOT EXISTS idx_payments_appointment_id ON payments(appointment_id);
 
-CREATE INDEX idx_escalation_logs_parent_id ON escalation_logs(parent_id);
+CREATE INDEX IF NOT EXISTS idx_escalation_logs_parent_id ON escalation_logs(parent_id);
+CREATE INDEX IF NOT EXISTS idx_payments_customer_id ON payments(stripe_customer_id);
+CREATE INDEX IF NOT EXISTS idx_payments_status ON payments(status);
+CREATE INDEX IF NOT EXISTS idx_payments_created_at ON payments(created_at);
+
+CREATE INDEX IF NOT EXISTS idx_subscriptions_customer_id ON subscriptions(stripe_customer_id);
+CREATE INDEX IF NOT EXISTS idx_subscriptions_status ON subscriptions(status);
+CREATE INDEX IF NOT EXISTS idx_subscriptions_created_at ON subscriptions(created_at);
 
 CREATE OR REPLACE FUNCTION can_send_nudge_to_user(whatsapp_id text, nudge_day integer) RETURNS boolean AS $$
 DECLARE
