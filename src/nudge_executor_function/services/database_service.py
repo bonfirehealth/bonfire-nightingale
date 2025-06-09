@@ -20,3 +20,23 @@ def get_db_connection():
             logger.error(f"Error connecting to PostgreSQL database: {e}")
             raise
     return db_conn
+
+def get_parent_id_from_coaching_session_id(cursor, coaching_session_id):
+    cursor.execute(
+        """
+        SELECT parent_id FROM coaching_sessions WHERE id = %s
+        """,
+        (coaching_session_id,)
+    )
+    result = cursor.fetchone()
+    return result[0] if result else None
+
+def log_message(cursor, parent_id, sender, content):
+    """Logs a message to the database."""
+    cursor.execute(
+        """
+        INSERT INTO messages (parent_id, sender, content)
+        VALUES (%s, %s, %s)
+        """,
+        (parent_id, sender, content)
+    )

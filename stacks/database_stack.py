@@ -22,15 +22,14 @@ class DatabaseStack(Stack):
         rds_instance_size_str = self.node.try_get_context(f"{environment_name}:rds_instance_size") or \
                                 ("R6G_LARGE" if is_prod else "BURSTABLE3_MEDIUM") # Mặc định nếu không có trong context
         
-        # Chuyển đổi string thành ec2.InstanceType
-        # Ví dụ đơn giản, bạn có thể làm phức tạp hơn để xử lý các loại instance khác nhau
+        # Convert string to ec2.InstanceType
         if "BURSTABLE3" in rds_instance_size_str:
             instance_class = ec2.InstanceClass.BURSTABLE3
             instance_size_enum = getattr(ec2.InstanceSize, rds_instance_size_str.split('_')[1])
-        elif "R6G" in rds_instance_size_str: # Ví dụ cho Graviton
+        elif "R6G" in rds_instance_size_str: # Example for Graviton
             instance_class = ec2.InstanceClass.R6G
             instance_size_enum = getattr(ec2.InstanceSize, rds_instance_size_str.split('_')[1])
-        else: # Mặc định
+        else: # Default
             instance_class = ec2.InstanceClass.BURSTABLE3
             instance_size_enum = ec2.InstanceSize.MEDIUM
 

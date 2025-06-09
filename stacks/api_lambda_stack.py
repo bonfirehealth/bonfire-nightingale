@@ -61,25 +61,24 @@ class ApiLambdaStack(Stack):
         application_secrets_object.grant_read(process_lambda_role)
         message_queue.grant_consume_messages(process_lambda_role)
 
-        # 1. Tạo IAM Role mà EventBridge Scheduler sẽ sử dụng để gọi Lambda Executor.
+        # 1. Create IAM Role for EventBridge Scheduler to invoke Nudge Executor Lambda
         scheduler_role = iam.Role(self, "EventBridgeSchedulerRole",
             assumed_by=iam.ServicePrincipal("scheduler.amazonaws.com"),
             description="IAM Role for EventBridge Scheduler to invoke Nudge Executor Lambda"
         )
-        # Cấp quyền cho Role này để gọi Lambda Executor (nudge_executor_function)
+        # Grant permission to invoke Nudge Executor Lambda
         scheduler_role.add_to_policy(iam.PolicyStatement(
             effect=iam.Effect.ALLOW,
             actions=["lambda:InvokeFunction"],
             resources=[nudge_executor_function_arn]
         ))
 
-        # 2. Tạo một Schedule Group để quản lý tất cả các schedule của trial.
-        # FIXED: Use EventBridge Scheduler's CfnScheduleGroup instead of iam.CfnGroup
+        # 2. Create a Schedule Group to manage all schedules for trial
         schedule_group = scheduler.CfnScheduleGroup(self, "NightingaleTrialScheduleGroup",
             name=f"nightingale-trial-schedules-{environment_name}"
         )
 
-        # 3. Cho phép ProcessFunction tạo/xóa schedule TRONG group đã tạo ở trên.
+        # 3. Grant ProcessFunction permission to create/delete schedules in the group created above
         process_lambda_role.add_to_policy(iam.PolicyStatement(
             effect=iam.Effect.ALLOW,
             actions=[
@@ -93,8 +92,8 @@ class ApiLambdaStack(Stack):
             ]
         ))
         
-        # 4. Cấp quyền iam:PassRole. Rất quan trọng!
-        # Lambda cần quyền này để "giao" `scheduler_role` cho dịch vụ EventBridge.
+        # 4. Grant iam:PassRole permission. Very important!
+        # Lambda needs this permission to "pass" `scheduler_role` to EventBridge service.
         process_lambda_role.add_to_policy(iam.PolicyStatement(
             effect=iam.Effect.ALLOW,
             actions=["iam:PassRole"],
@@ -172,8 +171,8 @@ class ApiLambdaStack(Stack):
         # Add SQS event source to ProcessFunction
         process_function.add_event_source(
             lambda_event_sources.SqsEventSource(message_queue,
-                batch_size=1,  # Xử lý 1 message mỗi lần invoke Lambda, phù hợp cho chatbot
-                report_batch_item_failures=True # Quan trọng để xử lý lỗi từng phần trong batch
+                batch_size=1,  # Process 1 message per Lambda invocation, suitable for chatbot
+                report_batch_item_failures=True # Important to handle errors in batch
             )
         )
 
