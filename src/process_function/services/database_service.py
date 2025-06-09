@@ -1,3 +1,6 @@
+from datetime import datetime, timedelta
+
+import pytz
 import psycopg2
 from psycopg2.extensions import cursor as Psycopg2Cursor
 from config import logger, DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD
@@ -57,7 +60,7 @@ def get_or_create_parent(cursor: Psycopg2Cursor, full_name: str, phone_number: s
         logger.info(f"New parent created for phone number: {phone_number}")
         return dict(zip(columns, new_parent))
 
-def get_parent_info(cursor: Psycopg2Cursor, parent_id: int) -> dict:
+def get_parent(cursor: Psycopg2Cursor, parent_id: int) -> dict:
     """
     Retrieves the parent's data from the database.
 
@@ -72,6 +75,39 @@ def get_parent_info(cursor: Psycopg2Cursor, parent_id: int) -> dict:
     parent = cursor.fetchone()
     columns = [desc[0] for desc in cursor.description]
     return dict(zip(columns, parent))
+
+def get_or_create_child(cursor: Psycopg2Cursor, parent_id: int, child_name: str, child_age: int) -> dict:
+    if child_age < 0 or child_age > 30:
+        raise ValueError("Child age must be between 0 and 30")
+
+    child_date_of_birth = datetime.now(pytz.utc) - timedelta(days=child_age * 365)
+    cursor.execute("SELECT * FROM children WHERE parent_id = %s AND name = %s AND date_of_birth = %s", (parent_id, child_name, child_date_of_birth))
+    child = cursor.fetchone()
+    
+    if child:
+        # Convert tuple to dictionary
+        columns = [desc[0] for desc in cursor.description]
+        return dict(zip(columns, child))
+    else:
+        # New child: create a record
+        cursor.execute(
+            """
+            INSERT INTO children (parent_id, name, date_of_birth)
+            VALUES (%s, %s, %s)
+            RETURNING *;
+            """,
+            (parent_id, child_name, child_date_of_birth)
+        )
+        new_child = cursor.fetchone()
+        columns = [desc[0] for desc in cursor.description]
+        logger.info(f"New child created for parent {parent_id}")
+        return dict(zip(columns, new_child))
+
+def get_all_children(cursor: Psycopg2Cursor, parent_id: int) -> list:
+    cursor.execute("SELECT * FROM children WHERE parent_id = %s", (parent_id,))
+    children = cursor.fetchall()
+    columns = [desc[0] for desc in cursor.description]
+    return [dict(zip(columns, child)) for child in children]
 
 def update_current_mode(cursor: Psycopg2Cursor, parent_id: int, mode: str) -> None:
     """
@@ -127,6 +163,33 @@ def update_monthly_summary_opted_in(cursor: Psycopg2Cursor, parent_id: int, opte
         (opted_in, parent_id)
     )
 
+def update_parent_contact_details(cursor: Psycopg2Cursor, parent_id: int, contact_details: dict) -> None:
+    """
+    Updates the parent's contact details in the database.
+
+    Args:
+        cursor (Cursor): The database cursor.
+        parent_id (int): The ID of the parent.
+        contact_details (dict): The contact details.
+    """
+    # Keep only the fields that are in the contact details
+    contact_details_fields = ["full_name", "whatsapp_id", "phone_number", "email", "postal_code"]
+    contact_details = {key: value for key, value in contact_details.items() if key in contact_details_fields}
+
+    if not contact_details:
+        return
+
+    set_clause = ", ".join([f"{key} = %s" for key in contact_details.keys()])
+    cursor.execute(
+        f"""
+        UPDATE parents
+        SET {set_clause}
+        WHERE id = %s
+        """,
+        (*contact_details.values(), parent_id)
+    )
+
+
 def update_parent_subscription_status(cursor: Psycopg2Cursor, parent_id: int, subscription_status: str) -> None:
     cursor.execute(
         """
@@ -174,6 +237,48 @@ def activate_trial_plan(cursor: Psycopg2Cursor, parent_id: int) -> None:
         """,
         (parent_id,)
     )
+
+def increase_trial_session_count(cursor: Psycopg2Cursor, parent_id: int) -> None:
+    """
+    Increases the trial session count for a parent.
+
+    Args:
+        cursor (Cursor): The database cursor.
+        parent_id (int): The ID of the parent.
+    """
+    cursor.execute(
+        """
+        UPDATE parents
+        SET trial_session_count = trial_session_count + 1
+        WHERE subscription_status = 'trialing' AND id = %s
+        """,
+        (parent_id,)
+    )
+
+def create_monthly_report(cursor: Psycopg2Cursor, parent_id: int) -> None:
+
+    # Count succeeded and failed sessions
+    cursor.execute(
+        """
+        SELECT COUNT(*) FROM coaching_sessions WHERE parent_id = %s AND status = 'succeeded'
+        """,
+        (parent_id,)
+    )
+    succeeded_count = cursor.fetchone()[0]
+    cursor.execute(
+        """
+        SELECT COUNT(*) FROM coaching_sessions WHERE parent_id = %s AND status = 'failed'
+        """,
+        (parent_id,)
+    )
+    failed_count = cursor.fetchone()[0]
+    
+    logger.info(f"New monthly report created for parent {parent_id}")
+    return {
+        "parent_id": parent_id,
+        "succeeded_count": succeeded_count,
+        "failed_count": failed_count
+    }
 
 def get_or_create_coaching_session(cursor: Psycopg2Cursor, parent_id: int, status: str = "active") -> dict:
     """
@@ -256,7 +361,7 @@ def log_escalation(cursor: Psycopg2Cursor, parent_id: int, escalation_data: str)
         (parent_id, *escalation_data.values())
     )
 
-def get_message_history(cursor: Psycopg2Cursor, parent_id: int, limit: int = 10) -> str:
+def get_message_history(cursor: Psycopg2Cursor, parent_id: int, limit: int = 100) -> str:
     """
     Retrieves the last N messages for a given parent to provide context to the AI.
 

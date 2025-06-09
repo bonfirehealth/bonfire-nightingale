@@ -1,358 +1,180 @@
--- Drop existing objects to ensure a clean slate on re-run
-DROP TABLE IF EXISTS escalation_logs CASCADE;
-DROP TABLE IF EXISTS payments CASCADE;
-DROP TABLE IF EXISTS coaching_sessions CASCADE;
-DROP TABLE IF EXISTS appointments CASCADE;
-DROP TABLE IF EXISTS children CASCADE;
-DROP TABLE IF EXISTS parents CASCADE;
+-- =================================================================
+-- INITIAL CLEANUP (FOR DEVELOPMENT ONLY - DO NOT RUN IN PRODUCTION)
+-- =================================================================
+-- DROP TABLE IF EXISTS escalation_logs, payments, subscriptions, messages, coaching_sessions, appointments, children, parents CASCADE;
+-- DROP TYPE IF EXISTS mode_enum, subscription_status_enum, appointment_status_enum, coaching_session_status_enum, assessment_type_enum, urgency_level_enum, message_sender_enum, payment_type_enum, payment_status_enum, escalation_type_enum CASCADE;
 
-DROP TYPE IF EXISTS subscription_status_enum;
-DROP TYPE IF EXISTS appointment_status_enum;
-DROP TYPE IF EXISTS assessment_type_enum;
-DROP TYPE IF EXISTS urgency_level_enum;
-DROP TYPE IF EXISTS payment_type_enum;
-DROP TYPE IF EXISTS payment_status_enum;
-DROP TYPE IF EXISTS escalation_type_enum;
-DROP TYPE IF EXISTS escalation_action_enum;
+
+-- =================================================================
+-- TRIGGER FUNCTION FOR AUTOMATIC 'updated_at'
+-- This single function will be used by all tables.
+-- =================================================================
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+   NEW.updated_at = NOW();
+   RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
 
 -- =================================================================
 -- ENUM TYPE DEFINITIONS
--- Using ENUMs improves data integrity by restricting columns to a set of allowed values.
 -- =================================================================
-
-CREATE TYPE mode_enum AS ENUM (
-    'concierge',
-    'parenting_coach',
-    'awaiting_mode_selection',
-    'chat'
-);
-
-CREATE TYPE subscription_status_enum AS ENUM (
-    'trialing',         -- User is in the 30-day free trial period.
-    'active_paid',      -- User has an active, paid subscription.
-    'trial_opted_out',  -- User explicitly declined to convert during the trial.
-    'trial_expired',    -- Trial ended without conversion.
-    'cancelled',        -- Paid subscription was cancelled.
-    'none'              -- User has not started a trial or subscription.
-);
-
-CREATE TYPE appointment_status_enum AS ENUM (
-    'pending_info',     -- Waiting for more information from the parent.
-    'pending_payment',  -- Information collected, waiting for payment.
-    'confirmed',        -- Payment received, appointment is confirmed.
-    'completed',        -- The appointment has taken place.
-    'cancelled_by_parent',
-    'cancelled_by_clinic'
-);
-
-CREATE TYPE coaching_session_status_enum AS ENUM (
-    'active',            -- Session is active.
-    'failed',            -- Session failed.
-    'succeeded',         -- Session succeeded.
-    'completed',         -- Session is considered completed when the parent has passed step 5.
-    'abandoned',         -- Session abandoned.
-    'cancelled'          -- Session cancelled.
-);
-
-CREATE TYPE assessment_type_enum AS ENUM (
-    'IQ/Giftedness',
-    'Depression/Anxiety/PTSD',
-    'ADHD',
-    'Autism Spectrum Disorder (ASD)',
-    'Global Developmental Delay',
-    'Intellectual Disability'
-);
-
-CREATE TYPE urgency_level_enum AS ENUM (
-    'low',
-    'high'
-);
-
-CREATE TYPE message_sender_enum AS ENUM (
-    'user',
-    'ai'
-);
-
-CREATE TYPE payment_type_enum AS ENUM (
-    'appointment_fee',
-    'subscription'
-);
-
-CREATE TYPE payment_status_enum AS ENUM (
-    'succeeded',
-    'pending',
-    'failed'
-);
-
-CREATE TYPE escalation_type_enum AS ENUM (
-    'keyword_based',    -- Triggered by specific risk keywords.
-    'tone_based'        -- Triggered by emotional tone analysis.
-);
-
--- CREATE TYPE escalation_action_enum AS ENUM (
---     'offered_psychologist_connection',
---     'alert_sent_to_psychologist'
--- );
+CREATE TYPE mode_enum AS ENUM ('concierge', 'parenting_coach', 'awaiting_mode_selection', 'chat');
+CREATE TYPE subscription_status_enum AS ENUM ('pre_trial', 'trialing', 'active_paid', 'trial_opted_out', 'trial_expired', 'cancelled');
+CREATE TYPE appointment_status_enum AS ENUM ('pending_info', 'pending_payment', 'confirmed', 'completed', 'cancelled_by_parent', 'cancelled_by_clinic');
+CREATE TYPE coaching_session_status_enum AS ENUM ('active', 'completed', 'abandoned');
+CREATE TYPE follow_up_outcome_enum AS ENUM ('pending', 'succeeded', 'failed', 'not_applicable');
+CREATE TYPE assessment_type_enum AS ENUM ('IQ/Giftedness', 'Depression/Anxiety/PTSD', 'ADHD', 'Autism Spectrum Disorder (ASD)', 'Global Developmental Delay', 'Intellectual Disability');
+CREATE TYPE urgency_level_enum AS ENUM ('low', 'high');
+CREATE TYPE message_sender_enum AS ENUM ('user', 'ai');
+CREATE TYPE payment_type_enum AS ENUM ('appointment_fee', 'subscription');
+CREATE TYPE payment_status_enum AS ENUM ('succeeded', 'pending', 'failed');
+CREATE TYPE escalation_type_enum AS ENUM ('keyword_based', 'tone_based');
 
 
 -- =================================================================
 -- TABLE DEFINITIONS
 -- =================================================================
 
--- ---------------------------------
--- PARENTS TABLE
--- Central table for all users interacting with the chatbot.
--- ---------------------------------
 CREATE TABLE parents (
     id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
-    whatsapp_id VARCHAR(255) UNIQUE NOT NULL, -- The unique identifier from WhatsApp.
+    whatsapp_id VARCHAR(255) UNIQUE NOT NULL,
     full_name VARCHAR(255),
     phone_number VARCHAR(50),
     email VARCHAR(255) UNIQUE,
     postal_code VARCHAR(20),
-
-    -- Mode Management
     current_mode mode_enum NOT NULL DEFAULT 'awaiting_mode_selection',
     current_step VARCHAR(255),
-
-    -- Trial and Subscription Management
-    subscription_status subscription_status_enum NOT NULL DEFAULT 'none',
-    trial_start_date TIMESTAMPTZ, -- Timestamp when the trial was activated.
-    trial_session_count INT NOT NULL DEFAULT 0, -- Increments each time an SST session is completed.
-    stripe_customer_id VARCHAR(255) UNIQUE, -- To link with the Stripe payment gateway.
-
-    -- Nudge Tracking
+    subscription_status subscription_status_enum NOT NULL DEFAULT 'pre_trial',
+    trial_start_date TIMESTAMPTZ,
+    trial_session_count INT NOT NULL DEFAULT 0,
+    stripe_customer_id VARCHAR(255) UNIQUE,
     sent_nudge_day_7_soft_introduction BOOLEAN NOT NULL DEFAULT FALSE,
     sent_nudge_day_14_low_usage BOOLEAN NOT NULL DEFAULT FALSE,
     sent_nudge_day_20_conversion BOOLEAN NOT NULL DEFAULT FALSE,
     sent_nudge_day_28_reminder BOOLEAN NOT NULL DEFAULT FALSE,
     monthly_summary_offered BOOLEAN NOT NULL DEFAULT FALSE,
     monthly_summary_opted_in BOOLEAN NOT NULL DEFAULT FALSE,
-
+    monthly_summary_sent_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+CREATE TRIGGER trigger_update_parents_updated_at BEFORE UPDATE ON parents FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
-COMMENT ON TABLE parents IS 'Stores information about the parents using the Nightingale service.';
-COMMENT ON COLUMN parents.whatsapp_id IS 'Unique identifier for the user on WhatsApp.';
-COMMENT ON COLUMN parents.subscription_status IS 'Tracks the user''s current trial/payment status.';
-COMMENT ON COLUMN parents.trial_session_count IS 'Counter for completed coaching sessions during the trial.';
+CREATE TABLE children (
+    id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+    parent_id BIGINT NOT NULL REFERENCES parents(id) ON DELETE CASCADE,
+    name VARCHAR(255),
+    date_of_birth DATE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE TRIGGER trigger_update_children_updated_at BEFORE UPDATE ON children FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
--- ---------------------------------
--- APPOINTMENTS TABLE
--- Manages booking information from Concierge Mode.
--- ---------------------------------
 CREATE TABLE appointments (
     id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
     parent_id BIGINT NOT NULL REFERENCES parents(id) ON DELETE CASCADE,
-    
+    child_id BIGINT REFERENCES children(id) ON DELETE SET NULL,
     status appointment_status_enum NOT NULL DEFAULT 'pending_info',
     assessment_type assessment_type_enum,
-    preferred_time_slot TEXT, -- Stores parent's raw preference (e.g., "Weekday afternoon").
-    scheduled_datetime TIMESTAMPTZ, -- The final, confirmed date and time of the appointment.
-    provider_assigned VARCHAR(255), -- Name of the psychologist or clinic provider.
-    
-    case_notes TEXT, -- Summary of the child's needs, collected by the bot.
+    preferred_time_slot TEXT,
+    scheduled_datetime TIMESTAMPTZ,
+    provider_assigned VARCHAR(255),
+    case_notes TEXT,
     urgency_level urgency_level_enum NOT NULL DEFAULT 'low',
-    
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+CREATE TRIGGER trigger_update_appointments_updated_at BEFORE UPDATE ON appointments FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
-COMMENT ON TABLE appointments IS 'Tracks all appointment bookings made via Concierge Mode.';
-COMMENT ON COLUMN appointments.scheduled_datetime IS 'The final confirmed date and time for the appointment.';
-
-
--- ---------------------------------
--- COACHING SESSIONS TABLE
--- Logs each completed Single Session Therapy (SST) interaction.
--- ---------------------------------
 CREATE TABLE coaching_sessions (
     id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
     parent_id BIGINT NOT NULL REFERENCES parents(id) ON DELETE CASCADE,
-    status coaching_session_status_enum NOT NULL DEFAULT 'active',
-    
+
+    -- Cột này chỉ cho biết trạng thái của chính phiên coach
+    status coaching_session_status_enum NOT NULL DEFAULT 'active', -- ('active', 'completed', 'abandoned')
+
     session_start_time TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     session_end_time TIMESTAMPTZ,
-    
-    parent_insight TEXT, -- The key takeaway in the parent's own words.
-    action_step TEXT,    -- The micro-step described in their own words.
-    
-    follow_up_scheduled BOOLEAN NOT NULL DEFAULT FALSE,
-    follow_up_sent_at TIMESTAMPTZ, -- Timestamp when the 3-day follow-up message was sent.
 
-    -- Full conversation can be stored elsewhere (e.g., a log system), this is for structured outcomes.
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    parent_insight TEXT,
+    action_step TEXT,
+
+    follow_up_scheduled BOOLEAN NOT NULL DEFAULT FALSE,
+    follow_up_sent_at TIMESTAMPTZ,
+
+    -- OPTIMIZATION: Thêm cột mới để lưu kết quả của hành động
+    follow_up_outcome follow_up_outcome_enum,
+    follow_up_notes TEXT -- (Tùy chọn) Để lưu chi tiết phản hồi của người dùng
 );
 
-COMMENT ON TABLE coaching_sessions IS 'Stores the outcome of each Parenting Coach session.';
-
--- ---------------------------------
--- MESSAGES TABLE
--- Stores all messages between the bot and the user.
--- ---------------------------------
 CREATE TABLE messages (
     id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
     parent_id BIGINT NOT NULL REFERENCES parents(id) ON DELETE CASCADE,
     sender message_sender_enum NOT NULL,
     content TEXT NOT NULL,
-    
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    -- OPTIMIZATION: Removed updated_at as messages are typically immutable.
 );
 
-COMMENT ON TABLE messages IS 'Stores all messages between the bot and the user.';
-
--- ---------------------------------
--- SUBSCRIPTIONS TABLE
--- Table for storing subscription information
--- ---------------------------------
 CREATE TABLE subscriptions (
     id SERIAL PRIMARY KEY,
+    -- OPTIMIZATION: Renamed table to be more specific.
+    -- OPTIMIZATION: Added direct foreign key to parents table for data integrity.
+    parent_id BIGINT UNIQUE NOT NULL REFERENCES parents(id) ON DELETE CASCADE,
     stripe_subscription_id VARCHAR(255) UNIQUE NOT NULL,
-    stripe_customer_id VARCHAR(255) NOT NULL,
-    customer_email VARCHAR(255),
+    stripe_customer_id VARCHAR(255) NOT NULL, -- Keep this for direct lookup in Stripe.
     status VARCHAR(50) NOT NULL,
-    current_period_start INTEGER,
-    current_period_end INTEGER,
-
+    current_period_start TIMESTAMPTZ, -- OPTIMIZATION: Changed to TIMESTAMPTZ for consistency
+    current_period_end TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+CREATE TRIGGER trigger_update_subscriptions_updated_at BEFORE UPDATE ON subscriptions FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
-
--- ---------------------------------
--- PAYMENTS TABLE
--- Tracks all financial transactions for both appointments and subscriptions.
--- ---------------------------------
 CREATE TABLE payments (
     id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
     parent_id BIGINT NOT NULL REFERENCES parents(id) ON DELETE CASCADE,
-    appointment_id BIGINT REFERENCES appointments(id) ON DELETE SET NULL, -- Nullable, for subscription payments.
-    
-    stripe_payment_intent_id VARCHAR(255) UNIQUE NOT NULL, -- The unique transaction ID from Stripe.
-    stripe_customer_id VARCHAR(255),
-    customer_email VARCHAR(255),
-    customer_name VARCHAR(255),
+    appointment_id BIGINT REFERENCES appointments(id) ON DELETE SET NULL,
+    subscription_id BIGINT REFERENCES subscriptions(id) ON DELETE SET NULL, -- OPTIMIZATION: Added link to subscription
+    stripe_payment_intent_id VARCHAR(255) UNIQUE NOT NULL,
     amount DECIMAL(10, 2) NOT NULL,
     currency VARCHAR(3) NOT NULL,
-    
     payment_type payment_type_enum NOT NULL,
     payment_method VARCHAR(50),
     status payment_status_enum NOT NULL,
-
     failure_reason TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    -- OPTIMIZATION: Removed redundant customer info. Use JOIN on parents table to get it.
 );
+CREATE TRIGGER trigger_update_payments_updated_at BEFORE UPDATE ON payments FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
-COMMENT ON TABLE payments IS 'Logs all payment transactions from Stripe.';
-COMMENT ON COLUMN payments.appointment_id IS 'Links a payment to a specific appointment, if applicable.';
-
-
--- ---------------------------------
--- ESCALATION LOGS TABLE
--- Records every instance where the safety protocol was triggered.
--- ---------------------------------
 CREATE TABLE escalation_logs (
     id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
     parent_id BIGINT NOT NULL REFERENCES parents(id) ON DELETE CASCADE,
-    coaching_session_id BIGINT REFERENCES coaching_sessions(id) ON DELETE SET NULL, -- Link to the session if escalation happened during one.
-    
-    triggering_message TEXT, -- The exact message or context that triggered the escalation.
+    coaching_session_id BIGINT REFERENCES coaching_sessions(id) ON DELETE SET NULL,
+    triggering_message TEXT,
     escalation_type escalation_type_enum NOT NULL,
-    -- action_taken escalation_action_enum,
-    
     alert_sent_at TIMESTAMPTZ,
-    is_resolved BOOLEAN NOT NULL DEFAULT FALSE, -- To be marked true by a human after review.
-    
+    is_resolved BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-COMMENT ON TABLE escalation_logs IS 'A critical log of all safety-related escalations for human review.';
-
 
 -- =================================================================
--- INDEXES
--- Creating indexes on foreign keys and frequently queried columns improves query performance.
+-- INDEXES (largely the same, very well-defined)
 -- =================================================================
-
 CREATE INDEX IF NOT EXISTS idx_parents_whatsapp_id ON parents(whatsapp_id);
 CREATE INDEX IF NOT EXISTS idx_parents_email ON parents(email);
-
+CREATE INDEX IF NOT EXISTS idx_children_parent_id ON children(parent_id);
 CREATE INDEX IF NOT EXISTS idx_appointments_parent_id ON appointments(parent_id);
-CREATE INDEX IF NOT EXISTS idx_appointments_status ON appointments(status);
-
+CREATE INDEX IF NOT EXISTS idx_appointments_child_id ON appointments(child_id);
 CREATE INDEX IF NOT EXISTS idx_coaching_sessions_parent_id ON coaching_sessions(parent_id);
-
+CREATE INDEX IF NOT EXISTS idx_messages_parent_id ON messages(parent_id);
+CREATE INDEX IF NOT EXISTS idx_subscriptions_parent_id ON subscriptions(parent_id);
 CREATE INDEX IF NOT EXISTS idx_payments_parent_id ON payments(parent_id);
 CREATE INDEX IF NOT EXISTS idx_payments_appointment_id ON payments(appointment_id);
-
 CREATE INDEX IF NOT EXISTS idx_escalation_logs_parent_id ON escalation_logs(parent_id);
-CREATE INDEX IF NOT EXISTS idx_payments_customer_id ON payments(stripe_customer_id);
-CREATE INDEX IF NOT EXISTS idx_payments_status ON payments(status);
-CREATE INDEX IF NOT EXISTS idx_payments_created_at ON payments(created_at);
-
-CREATE INDEX IF NOT EXISTS idx_subscriptions_customer_id ON subscriptions(stripe_customer_id);
-CREATE INDEX IF NOT EXISTS idx_subscriptions_status ON subscriptions(status);
-CREATE INDEX IF NOT EXISTS idx_subscriptions_created_at ON subscriptions(created_at);
-
-CREATE OR REPLACE FUNCTION can_send_nudge_to_user(whatsapp_id text, nudge_day integer) RETURNS boolean AS $$
-DECLARE
-    parent_record RECORD;
-    session_count INTEGER;
-    nudge_sent BOOLEAN;
-    current_status TEXT;
-BEGIN
-    -- Get parent record with current status and nudge flags
-    SELECT 
-        p.subscription_status,
-        p.trial_session_count,
-        CASE 
-            WHEN nudge_day = 7 THEN p.sent_nudge_day_7_soft_introduction
-            WHEN nudge_day = 14 THEN p.sent_nudge_day_14_low_usage
-            WHEN nudge_day = 20 THEN p.sent_nudge_day_20_conversion
-            WHEN nudge_day = 28 THEN p.sent_nudge_day_28_reminder
-            ELSE TRUE -- Default to true to prevent sending if day is not recognized
-        END as nudge_sent
-    INTO parent_record
-    FROM parents p
-    WHERE p.whatsapp_id = whatsapp_id;
-
-    -- If parent not found, return false
-    IF NOT FOUND THEN
-        RETURN FALSE;
-    END IF;
-
-    -- Check if nudge was already sent for this day
-    IF parent_record.nudge_sent THEN
-        RETURN FALSE;
-    END IF;
-
-    -- Check if user has opted out or converted
-    IF parent_record.subscription_status IN ('trial_opted_out', 'converted_paid_subscriber') THEN
-        RETURN FALSE;
-    END IF;
-
-    -- Day-specific logic
-    CASE nudge_day
-        WHEN 7, 14 THEN
-            -- Day 7 and 14: Only send if session count is 0 or 1
-            RETURN parent_record.trial_session_count <= 1;
-            
-        WHEN 20 THEN
-            -- Day 20: Only send if session count is 2 or more
-            -- and not already converted or opted out
-            RETURN parent_record.trial_session_count >= 2;
-            
-        WHEN 28 THEN
-            -- Day 28: Send to everyone who hasn't opted out or converted
-            -- and hasn't already been sent this nudge
-            RETURN TRUE;
-            
-        ELSE
-            -- Unknown day, don't send
-            RETURN FALSE;
-    END CASE;
-END;
-$$ LANGUAGE plpgsql;

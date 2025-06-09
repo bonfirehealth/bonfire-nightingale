@@ -25,7 +25,7 @@ def lambda_handler(event: dict, context: dict) -> dict:
         if nudge_type == "3_day_follow_up":
             logger.info(f"Executing 3-day follow-up for user {whatsapp_id}")
             
-            message = "How have things been since we last spoke? Did anything shift, even slightly?"
+            message = "Hey! How have things been since we last spoke? Did anything shift, even slightly?"
             
             # Send message to parent
             wati.send_message(whatsapp_id, message)
@@ -45,6 +45,24 @@ def lambda_handler(event: dict, context: dict) -> dict:
                 db_conn.commit()
             
             logger.info(f"Sent 3-day follow-up to user {whatsapp_id}")
+        
+        elif nudge_type == "monthly_summary":
+            logger.info(f"Executing monthly summary for user {whatsapp_id}")
+
+            # 
+            
+            # Send message to parent
+            wati.send_message(whatsapp_id, "Hello! This is Nightingale again, your AI Parenting Coach from Bonfire Pediatrics. Just checking in — it's been a couple of weeks since you got our parent guidebook, and I wanted to see how things have been going. If anything's been weighing on you lately — whether it's stress at home, a tough moment with your child, or something you've been second-guessing. What has bothered you in the past week?")
+
+            # Update parent info
+            with db_conn.cursor() as cursor:
+                cursor.execute(
+                    "UPDATE parents SET monthly_summary_sent_at = CURRENT_TIMESTAMP WHERE whatsapp_id = %s",
+                    (whatsapp_id,)
+                )
+
+            db_conn.commit()
+
         elif nudge_type.startswith("nudge_day_") or nudge_type == "trial_expiry":
             nudge_day = int(nudge_type.split('_')[2]) if nudge_type.startswith("nudge_day_") else 30
             
