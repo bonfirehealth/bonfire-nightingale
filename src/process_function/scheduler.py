@@ -24,8 +24,8 @@ def create_trial_schedules(whatsapp_id: str, coaching_session_id: int) -> None:
 
     # Define the nudge and activation time (in days)
     schedules_to_create = [
-        {"name": "day-7-nudge", "days": 7, "type": "nudge_day_7"},
-        {"name": "day-14-nudge", "days": 14, "type": "nudge_day_14"},
+        {"name": "day-7-nudge", "days": 7, "type": "nudge_day_7_soft_introduction"},
+        {"name": "day-14-nudge", "days": 14, "type": "nudge_day_14_low_usage"},
         {"name": "day-20-conversion", "days": 20, "type": "nudge_day_20_conversion"},
         {"name": "day-28-reminder", "days": 28, "type": "nudge_day_28_reminder"},
         {"name": "day-30-expiry", "days": 30, "type": "trial_expiry"},

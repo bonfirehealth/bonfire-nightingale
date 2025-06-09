@@ -109,6 +109,34 @@ def update_current_step(cursor: Psycopg2Cursor, parent_id: int, step: str) -> No
         (step, parent_id)
     )
 
+def update_monthly_summary_opted_in(cursor: Psycopg2Cursor, parent_id: int, opted_in: bool) -> None:
+    """
+    Updates the parent's monthly summary opted-in status in the database.
+
+    Args:
+        cursor (Cursor): The database cursor.
+        parent_id (int): The ID of the parent.
+        opted_in (bool): The new opted-in status.
+    """
+    cursor.execute(
+        """
+        UPDATE parents
+        SET monthly_summary_opted_in = %s
+        WHERE id = %s
+        """,
+        (opted_in, parent_id)
+    )
+
+def update_parent_subscription_status(cursor: Psycopg2Cursor, parent_id: int, subscription_status: str) -> None:
+    cursor.execute(
+        """
+        UPDATE parents
+        SET subscription_status = %s
+        WHERE id = %s
+        """,
+        (subscription_status, parent_id)
+    )
+
 def create_appointment(cursor: Psycopg2Cursor, appointment_data: dict) -> dict:
     """
     Creates a new appointment in the database.
@@ -130,28 +158,79 @@ def create_appointment(cursor: Psycopg2Cursor, appointment_data: dict) -> dict:
     logger.info(f"New appointment created for parent {appointment_data['parent_id']}")
     return dict(zip(columns, new_appointment))
 
-def create_coaching_session(cursor: Psycopg2Cursor, coaching_session_data: dict) -> dict:
+def activate_trial_plan(cursor: Psycopg2Cursor, parent_id: int) -> None:
+    """
+    Activates a trial plan for a parent.
+
+    Args:
+        cursor (Cursor): The database cursor.
+        parent_id (int): The ID of the parent.
+    """
+    cursor.execute(
+        """
+        UPDATE parents
+        SET subscription_status = 'trialing', trial_start_date = NOW()
+        WHERE id = %s
+        """,
+        (parent_id,)
+    )
+
+def get_or_create_coaching_session(cursor: Psycopg2Cursor, parent_id: int, status: str = "active") -> dict:
     """
     Creates a new coaching session in the database.
 
     Args:
         cursor (Cursor): The database cursor.
-        coaching_session_data (dict): The coaching session data.
+        parent_id (int): The ID of the parent.
+        status (str): The status of the coaching session.
     """
-    cursor.execute(
-        """
-        INSERT INTO coaching_sessions (parent_id, parent_insight, action_step, follow_up_scheduled, follow_up_sent_at)
-        VALUES (%s, %s, %s, %s, %s)
-        RETURNING *;
-        """,
-        (coaching_session_data["parent_id"], coaching_session_data["parent_insight"], coaching_session_data["action_step"], coaching_session_data["follow_up_scheduled"], coaching_session_data["follow_up_sent_at"])
-    )
-    new_coaching_session = cursor.fetchone()
-    columns = [desc[0] for desc in cursor.description]
-    logger.info(f"New coaching session created for parent {coaching_session_data['parent_id']}")
-    return dict(zip(columns, new_coaching_session))
+    cursor.execute("SELECT * FROM coaching_sessions WHERE status = %s AND parent_id = %s", (status, parent_id))
+    coaching_session = cursor.fetchone()
+    if coaching_session:
+        columns = [desc[0] for desc in cursor.description]
+        return dict(zip(columns, coaching_session))
+    else:
+        cursor.execute(
+            """
+            INSERT INTO coaching_sessions (parent_id, status)
+            VALUES (%s, %s)
+            RETURNING *;
+            """,
+            (parent_id, status)
+        )
+        new_coaching_session = cursor.fetchone()
+        columns = [desc[0] for desc in cursor.description]
+        logger.info(f"New coaching session created for parent {parent_id}")
+        return dict(zip(columns, new_coaching_session))
 
-def log_escalation(cursor: Psycopg2Cursor, parent_id: int, escalation_details: str) -> None:
+def update_coaching_session(cursor: Psycopg2Cursor, coaching_session: dict) -> None:
+    """
+    Updates a coaching session in the database.
+
+    Args:
+        cursor (Cursor): The database cursor.
+        coaching_session (dict): The coaching session data.
+    """
+    # Keep only the fields that are in the coaching session
+    columns = ["id", "parent_id", "status", "session_start_time", "session_end_time",
+                "parent_insight", "action_step", "follow_up_scheduled", "follow_up_sent_at"]
+    coaching_session = {key: value for key, value in coaching_session.items() if key in columns}
+
+    if not coaching_session:
+        return
+    
+    set_clause = ", ".join([f"{key} = %s" for key in coaching_session.keys()])
+    
+    cursor.execute(
+        f"""
+        UPDATE coaching_sessions
+        SET {set_clause}
+        WHERE id = %s
+        """,
+        (*coaching_session.values(), coaching_session["id"])
+    )
+
+def log_escalation(cursor: Psycopg2Cursor, parent_id: int, escalation_data: str) -> None:
     """
     Logs an escalation in the database.
 
@@ -160,12 +239,21 @@ def log_escalation(cursor: Psycopg2Cursor, parent_id: int, escalation_details: s
         parent_id (int): The ID of the parent.
         escalation_details (str): The escalation details.
     """
+    # Keep only the fields that are in the escalation data
+    columns = ["triggering_message", "escalation_type", "action_taken"]
+    escalation_data = {key: value for key, value in escalation_data.items() if key in columns}
+    
+    if not escalation_data:
+        return
+    
+    set_clause = ", ".join([f"{key} = %s" for key in escalation_data.keys()])
+    
     cursor.execute(
-        """
-        INSERT INTO escalations (parent_id, escalation_details)
-        VALUES (%s, %s)
+        f"""
+        INSERT INTO escalations (parent_id, {set_clause})
+        VALUES (%s, {set_clause})
         """,
-        (parent_id, escalation_details)
+        (parent_id, *escalation_data.values())
     )
 
 def get_message_history(cursor: Psycopg2Cursor, parent_id: int, limit: int = 10) -> str:

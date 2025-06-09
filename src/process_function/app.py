@@ -102,6 +102,30 @@ def lambda_handler(event: dict, context: dict) -> dict:
 
         return {"statusCode": 500, "body": "Internal Server Error"}
 
+def handle_continue_conversation(cursor: Psycopg2Cursor, parent_id: int, data: Dict[str, Any]) -> None:
+    """
+    Handles the continue_conversation action.
+
+    Args:
+        cursor (Cursor): The database cursor.
+        parent_id (int): The ID of the parent.
+        data (Dict[str, Any]): The data from the AI response.
+    """
+    try:
+        # Check trial status
+        parent_info = db.get_parent_info(cursor, parent_id)
+        if parent_info["subscription_status"] == "none":
+            logger.info(f"Parent {parent_id} is in none mode. Activating trial mode.")
+            db.activate_trial_plan(cursor, parent_id)
+        
+        logger.info(f"Continue conversation for parent {parent_id}")
+    except Exception as e:
+        # Log the specific error that occurred during action processing
+        error_traceback = traceback.format_exc()
+        logger.error(f"Error processing action 'continue_conversation' for parent {parent_id}: {e}\nTraceback:\n{error_traceback}")
+        # Re-raise the error to allow lambda_handler to catch and rollback the transaction
+        raise
+
 def handle_send_to_clinics(cursor: Psycopg2Cursor, parent_id: int, data: Dict[str, Any]) -> None:
     """
     Handles the send_to_clinics action.
@@ -135,9 +159,35 @@ def handle_send_to_clinics(cursor: Psycopg2Cursor, parent_id: int, data: Dict[st
         # Re-raise the error to allow lambda_handler to catch and rollback the transaction
         raise
 
-def handle_complete_coaching_session(cursor: Psycopg2Cursor, parent_id: int, data: Dict[str, Any]) -> None:
+def handle_coaching_session_completed(cursor: Psycopg2Cursor, parent_id: int, data: Dict[str, Any]) -> None:
     """
     Handles the complete_coaching_session action.
+
+    Args:
+        cursor (Cursor): The database cursor.
+        parent_id (int): The ID of the parent.
+        data (Dict[str, Any]): The data from the AI response.
+    """
+    try:
+        coaching_session = db.get_or_create_coaching_session(cursor, parent_id)
+        coaching_session["parent_insight"] = data.get("parent_insight", "")
+        coaching_session["action_step"] = data.get("action_step", "")
+        coaching_session["status"] = "completed"
+
+        # Update coaching session
+        db.update_coaching_session(cursor, coaching_session)
+
+        logger.info(f"Created coaching session for parent {parent_id}")
+    except Exception as e:
+        # Log the specific error that occurred during action processing
+        error_traceback = traceback.format_exc()
+        logger.error(f"Error processing action 'coaching_session_completed' for parent {parent_id}: {e}\nTraceback:\n{error_traceback}")
+        # Re-raise the error to allow lambda_handler to catch and rollback the transaction
+        raise
+
+def handle_schedule_followup(cursor: Psycopg2Cursor, parent_id: int, data: Dict[str, Any]) -> None:
+    """
+    Handles the schedule_followup action.
 
     Args:
         cursor (Cursor): The database cursor.
@@ -148,36 +198,87 @@ def handle_complete_coaching_session(cursor: Psycopg2Cursor, parent_id: int, dat
         # 3-day follow-up
         follow_up_sent_at = datetime.now(pytz.utc) + timedelta(days=3) - timedelta(minutes=15)
     
-        # Update coaching insights and action step
-        insert_coaching_session = {
-            "parent_id": parent_id,
-            "parent_insight": data.get("parent_insight", ""),
-            "action_step": data.get("action_step", ""),
-            "follow_up_scheduled": data.get("follow_up_scheduled", False),
-            "follow_up_sent_at": follow_up_sent_at
-        }
-        
-        coaching_session = db.create_coaching_session(cursor, insert_coaching_session)
+        coaching_session = db.get_or_create_coaching_session(cursor, parent_id, "completed")
+        coaching_session["follow_up_scheduled"] = True
+        coaching_session["follow_up_sent_at"] = follow_up_sent_at
+
+        # Update coaching session
+        db.update_coaching_session(cursor, coaching_session)
 
         # Schedule nudges
         parent_info = db.get_parent_info(cursor, parent_id)
-        coaching_session["whatsapp_id"] = parent_info["whatsapp_id"]
-        scheduler.create_trial_schedules(coaching_session["whatsapp_id"], coaching_session["id"])
+        scheduler.create_trial_schedules(parent_info["whatsapp_id"], coaching_session["id"])
 
-        scheduler.schedule_single_event(coaching_session["whatsapp_id"], coaching_session["id"], "3_day_follow_up", 3)
-
-        logger.info(f"Created coaching session for parent {parent_id}")
+        scheduler.schedule_single_event(parent_info["whatsapp_id"], coaching_session["id"], "3_day_follow_up", 3)
     except Exception as e:
         # Log the specific error that occurred during action processing
         error_traceback = traceback.format_exc()
-        logger.error(f"Error processing action 'complete_coaching_session' for parent {parent_id}: {e}\nTraceback:\n{error_traceback}")
+        logger.error(f"Error processing action 'schedule_followup' for parent {parent_id}: {e}\nTraceback:\n{error_traceback}")
+        # Re-raise the error to allow lambda_handler to catch and rollback the transaction
+        raise
+
+def handle_schedule_monthly_summary(cursor: Psycopg2Cursor, parent_id: int, data: Dict[str, Any]) -> None:
+    try:
+        # Update parent info
+        db.update_monthly_summary_opted_in(cursor, parent_id, True)
+
+        # Schedule monthly summary
+        # parent_info = db.get_parent_info(cursor, parent_id)
+        # monthly_summary_scheduled_at = datetime.now(pytz.utc) + timedelta(days=30) - timedelta(minutes=15)
+
+        # scheduler.schedule_single_event(parent_info["whatsapp_id"], parent_id, "monthly_summary", 30)
+
+        logger.info(f"Monthly summary scheduled for parent {parent_id}")
+    except Exception as e:
+        # Log the specific error that occurred during action processing
+        error_traceback = traceback.format_exc()
+        logger.error(f"Error processing action 'schedule_monthly_summary' for parent {parent_id}: {e}\nTraceback:\n{error_traceback}")
+        # Re-raise the error to allow lambda_handler to catch and rollback the transaction
+        raise
+
+def handle_coaching_session_succeeded(cursor: Psycopg2Cursor, parent_id: int, data: Dict[str, Any]) -> None:
+    try:
+        # Update the coaching session = "succeeded"
+        coaching_session = db.get_or_create_coaching_session(cursor, parent_id, "completed")
+        coaching_session["status"] = "succeeded"
+        db.update_coaching_session(cursor, coaching_session)
+        logger.info(f"Coaching session succeeded for parent {parent_id}")
+    except Exception as e:
+        # Log the specific error that occurred during action processing
+        error_traceback = traceback.format_exc()
+        logger.error(f"Error processing action 'coaching_session_succeeded' for parent {parent_id}: {e}\nTraceback:\n{error_traceback}")
+        # Re-raise the error to allow lambda_handler to catch and rollback the transaction
+        raise
+
+def handle_trigger_escalation(cursor: Psycopg2Cursor, parent_id: int, data: Dict[str, Any]) -> None:
+    """
+    Handles the trigger_escalation action.
+
+    Args:
+        cursor (Cursor): The database cursor.
+        parent_id (int): The ID of the parent.
+        data (Dict[str, Any]): The data from the AI response.
+    """
+    try:
+        parent_info = db.get_parent_info(cursor, parent_id)
+        email.send_escalation_email(parent_info["whatsapp_id"], parent_info["full_name"])
+        db.log_escalation(cursor, parent_id, data)
+        logger.info(f"Triggered escalation for parent {parent_id}")
+    except Exception as e:
+        # Log the specific error that occurred during action processing
+        error_traceback = traceback.format_exc()
+        logger.error(f"Error processing action 'trigger_escalation' for parent {parent_id}: {e}\nTraceback:\n{error_traceback}")
         # Re-raise the error to allow lambda_handler to catch and rollback the transaction
         raise
 
 ACTION_HANDLERS = {
-    "continue_conversation": lambda *args, **kwargs: None,
+    "continue_conversation": handle_continue_conversation,
     "send_to_clinics": handle_send_to_clinics,
-    "complete_coaching_session": handle_complete_coaching_session,
+    "complete_coaching_session": handle_coaching_session_completed,
+    "coaching_session_succeeded": handle_coaching_session_succeeded,
+    "schedule_followup": handle_schedule_followup,
+    "schedule_monthly_summary": handle_schedule_monthly_summary,
+    "trigger_escalation": handle_trigger_escalation,
 }
 
 def process_ai_actions(cursor: Psycopg2Cursor, parent_id: int, ai_response: Dict[str, Any]) -> None:
@@ -192,7 +293,7 @@ def process_ai_actions(cursor: Psycopg2Cursor, parent_id: int, ai_response: Dict
     """
     action = ai_response.get("action")
     data = ai_response.get("data", {})
-    handler = ACTION_HANDLERS.get(action)
+    handler = ACTION_HANDLERS.get(action, "continue_conversation")
     if handler:
         handler(cursor, parent_id, data)
     else:

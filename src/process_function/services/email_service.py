@@ -90,10 +90,11 @@ def send_clinic_notification(appointment_info: dict, case_notes: str) -> bool:
         return False
 
 # --- Google Email Helper ---
-def send_escalation_email(user_name: str) -> bool:
+def send_escalation_email(whatsapp_id: str, user_name: str) -> bool:
     """Send an escalation email to the clinic.
 
     Args:
+        whatsapp_id (str): The whatsapp id of the user.
         user_name (str): The name of the user.
 
     Returns:
@@ -118,7 +119,7 @@ def send_escalation_email(user_name: str) -> bool:
         import smtplib
         from email.mime.text import MIMEText
 
-        msg = MIMEText(f"An escalation was triggered by a user.\nUser name was: {user_name}\nPlease review the case.")
+        msg = MIMEText(f"An escalation was triggered by a user.\nUser name was: {user_name}. WhatsApp ID: {whatsapp_id}\nPlease review the case.")
         msg["Subject"] = email_subject
         msg["From"] = sender_email
         msg["To"] = ", ".join(recipient_emails) # BCC will be handled by SMTP server when sendmail
