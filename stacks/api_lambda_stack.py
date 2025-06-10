@@ -8,6 +8,7 @@ from aws_cdk import (
     aws_rds as rds,
     aws_secretsmanager as secretsmanager,
     aws_iam as iam,
+    aws_dynamodb as dynamodb,
     aws_lambda_event_sources as lambda_event_sources,
     aws_scheduler as scheduler,  # Add this import for EventBridge Scheduler
     Duration,
@@ -22,6 +23,8 @@ class ApiLambdaStack(Stack):
                  vpc: ec2.IVpc,
                  lambda_security_group: ec2.ISecurityGroup,
                  message_queue: sqs.IQueue,
+                 active_users_table: dynamodb.ITable,
+                 metrics_table: dynamodb.ITable,
                  db_cluster: rds.IDatabaseCluster,
                  db_credentials_secret: secretsmanager.ISecret,
                  application_secrets_arn: str,
@@ -49,7 +52,7 @@ class ApiLambdaStack(Stack):
         application_secrets_object.grant_read(ingest_lambda_role)
         message_queue.grant_send_messages(ingest_lambda_role)
 
-        # Role cho ProcessFunction
+        # Role for ProcessFunction
         process_lambda_role = iam.Role(self, "ProcessLambdaRole",
             assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
             managed_policies=[
@@ -61,7 +64,10 @@ class ApiLambdaStack(Stack):
         application_secrets_object.grant_read(process_lambda_role)
         message_queue.grant_consume_messages(process_lambda_role)
 
-        # Role cho Stripe Webhook Lambda
+        # Grant permission to read/write data in Active Users Table
+        active_users_table.grant_read_write_data(ingest_lambda_role)
+
+        # Role for Stripe Webhook Lambda
         stripe_lambda_role = iam.Role(self, "StripeWebhookLambdaRole",
             assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
             managed_policies=[
@@ -146,7 +152,8 @@ class ApiLambdaStack(Stack):
             memory_size=lambda_memory_ingest_val,
             environment={
                 **common_lambda_env,
-                "MESSAGE_QUEUE_URL": message_queue.queue_url
+                "MESSAGE_QUEUE_URL": message_queue.queue_url,
+                "ACTIVE_USERS_TABLE_NAME": active_users_table.table_name
             },
         )
 
@@ -178,6 +185,58 @@ class ApiLambdaStack(Stack):
             memory_size=lambda_memory_process_val,
         )
         message_queue.grant_consume_messages(process_function) # Grant permission to consume messages from SQS
+
+        # Active User Counter Function
+        counter_function = lambda_.Function(self, "ActiveUserCounterFunction",
+            runtime=lambda_.Runtime.PYTHON_3_11,
+            handler="app.lambda_handler",
+            code=lambda_.Code.from_asset("src/active_user_counter_function"), # Tạo thư mục này
+            timeout=Duration.seconds(30),
+            memory_size=128,
+            environment={
+                "METRICS_TABLE_NAME": metrics_table.table_name,
+                "COUNTER_METRIC_NAME": "activeUserCount" # Tên của metric trong bảng
+            }
+        )
+        # Cấp quyền cho Lambda đọc/ghi vào bảng Metrics
+        metrics_table.grant_read_write_data(counter_function)
+
+        # Tạo trigger: trigger Lambda này mỗi khi có event trên Stream của ActiveUsersTable
+        counter_function.add_event_source(lambda_event_sources.DynamoEventSource(
+            active_users_table,
+            starting_position=lambda_.StartingPosition.TRIM_HORIZON,
+            batch_size=100, # Xử lý tối đa 100 record mỗi lần invoke
+            retry_attempts=3
+        ))
+
+        # Dashboard Function
+        dashboard_function = lambda_.Function(self, "DashboardFunction",
+            runtime=lambda_.Runtime.PYTHON_3_11,
+            handler="app.lambda_handler",
+            code=lambda_.Code.from_asset(
+                "src/dashboard_function",
+                bundling=BundlingOptions(
+                    image=lambda_.Runtime.PYTHON_3_11.bundling_image,
+                    command=[
+                        "bash", "-c", (
+                            "pip install -r requirements.txt -t /asset-output && "
+                            "cp -au . /asset-output"
+                        )
+                    ]
+                )
+            ),
+            timeout=Duration.seconds(20),
+            memory_size=256, # Tăng nhẹ memory
+            environment={
+                "METRICS_TABLE_NAME": metrics_table.table_name,
+                "COUNTER_METRIC_NAME": "activeUserCount",
+                # THÊM MỚI: Truyền tên bảng active users vào
+                "ACTIVE_USERS_TABLE_NAME": active_users_table.table_name
+            }
+        )
+        # Cấp quyền cho Lambda chỉ đọc từ bảng Metrics
+        metrics_table.grant_read_data(dashboard_function)
+        active_users_table.grant_read_data(dashboard_function)  # Grant scan permission
 
         # Add SQS event source to ProcessFunction
         process_function.add_event_source(
@@ -229,6 +288,12 @@ class ApiLambdaStack(Stack):
         # Integration between API Gateway and Stripe Webhook Function
         stripe_integration = apigwv2_integrations.HttpLambdaIntegration("StripeIntegration", stripe_webhook_function)
 
+        # Integration between API Gateway and Dashboard Function
+        dashboard_integration = apigwv2_integrations.HttpLambdaIntegration(
+            "DashboardIntegration",
+            dashboard_function
+        )
+
         http_api.add_routes(
             path="/webhook/wati", # Endpoint for WATI webhook
             methods=[apigwv2.HttpMethod.POST],
@@ -242,5 +307,13 @@ class ApiLambdaStack(Stack):
             integration=stripe_integration
         )
 
+        # Add Dashboard endpoint
+        http_api.add_routes(
+            path="/dashboard", # Endpoint để xem dashboard
+            methods=[apigwv2.HttpMethod.GET],
+            integration=dashboard_integration
+        )
+
         CfnOutput(self, "ApiGatewayUrl", value=http_api.url)
         CfnOutput(self, "StripeWebhookUrl", value=f"{http_api.url}webhook/stripe")
+        CfnOutput(self, "DashboardUrl", value=f"{http_api.url}dashboard", description="URL to view the active users dashboard")
