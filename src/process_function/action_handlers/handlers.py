@@ -46,9 +46,9 @@ def handle_continue_conversation(cursor: Psycopg2Cursor, parent_id: int, data: D
         logger.info(f"WTW employee flag set for parent {parent_id}")
 
 
-def handle_send_to_clinics(cursor: Psycopg2Cursor, parent_id: int, data: Dict[str, Any]) -> None:
+def handle_send_to_clinics_and_process_payment(cursor: Psycopg2Cursor, parent_id: int, data: Dict[str, Any]) -> None:
     """
-    Handle appointment booking and clinic notification.
+    Handle appointment booking, clinic notification and payment processing.
     
     Args:
         cursor: Database cursor
@@ -81,6 +81,10 @@ def handle_send_to_clinics(cursor: Psycopg2Cursor, parent_id: int, data: Dict[st
     
     email.send_clinic_notification(notification_data, data.get("case_notes", ""))
     logger.info(f"Appointment created and clinic notified for parent {parent_id}")
+
+    # Send a PayNow QR code to the parent
+    parent_info = db.get_parent_by_id(cursor, parent_id)
+    wati.send_template_message(parent_info["whatsapp_id"], "paynow_qr", "paynow_qr")
 
 def handle_coaching_session_completed(cursor: Psycopg2Cursor, parent_id: int, data: Dict[str, Any]) -> None:
     """
@@ -227,18 +231,6 @@ def handle_trigger_escalation(cursor: Psycopg2Cursor, parent_id: int, data: Dict
     
     logger.info(f"Escalation triggered for parent {parent_id}")
 
-def handle_process_appointment_payment(cursor: Psycopg2Cursor, parent_id: int, data: Dict[str, Any]) -> None:
-    """
-    Handle appointment payment processing.
-    
-    Args:
-        cursor: Database cursor
-        parent_id: Parent's ID
-        data: Appointment payment data
-    """
-    # Send a PayNow QR code to the parent
-    parent_info = db.get_parent_by_id(cursor, parent_id)
-    wati.send_template_message(parent_info["whatsapp_id"], "paynow_qr", "paynow_qr")
 
 def handle_process_subscription_payment(cursor: Psycopg2Cursor, parent_id: int, data: Dict[str, Any]) -> None:
     """
@@ -265,13 +257,12 @@ def handle_process_subscription_payment(cursor: Psycopg2Cursor, parent_id: int, 
 # Action handler mapping
 ACTION_HANDLERS = {
     "continue_conversation": handle_continue_conversation,
-    "send_to_clinics": handle_send_to_clinics,
+    "send_to_clinics_and_process_payment": handle_send_to_clinics_and_process_payment,
     "complete_coaching_session": handle_coaching_session_completed,
     "update_coaching_session_result": handle_update_coaching_session_result,
     "schedule_follow_up": handle_schedule_follow_up,
     "schedule_monthly_summary": handle_schedule_monthly_summary,
     "trigger_escalation": handle_trigger_escalation,
-    "process_appointment_payment": handle_process_appointment_payment,
     "process_subscription_payment": handle_process_subscription_payment,
 }
 
