@@ -78,7 +78,6 @@ def handle_send_to_clinics(cursor: Psycopg2Cursor, parent_id: int, data: Dict[st
     email.send_clinic_notification(notification_data, data.get("case_notes", ""))
     logger.info(f"Appointment created and clinic notified for parent {parent_id}")
 
-
 def handle_coaching_session_completed(cursor: Psycopg2Cursor, parent_id: int, data: Dict[str, Any]) -> None:
     """
     Handle completion of a coaching session.
@@ -97,18 +96,50 @@ def handle_coaching_session_completed(cursor: Psycopg2Cursor, parent_id: int, da
     session_updates = {
         "status": "completed",
         "session_end_time": datetime.now(pytz.utc),
+    }
+    
+    db.update_coaching_session(cursor, session["id"], session_updates)
+    db.increment_session_count(cursor, parent_id)
+    
+    logger.info(f"Coaching session completed for parent {parent_id}")
+
+
+def handle_schedule_follow_up(cursor: Psycopg2Cursor, parent_id: int, data: Dict[str, Any]) -> None:
+    """
+    Handle follow-up scheduling.
+    
+    Args:
+        cursor: Database cursor
+        parent_id: Parent's ID
+        data: Follow-up scheduling data
+    """
+    # Get or create coaching session
+    session = db.get_active_coaching_session(cursor, parent_id)
+    if not session:
+        session = db.create_coaching_session(cursor, parent_id)
+    
+    # Update session with completion data
+    session_updates = {
+        "status": "completed",
+        "session_end_time": datetime.now(pytz.utc),
         "parent_insight": data.get("parent_insight", ""),
         "action_step": data.get("action_step", ""),
         "follow_up_scheduled": data.get("follow_up_scheduled", False),
         "follow_up_outcome": data.get("follow_up_outcome", "pending"),
-        "monthly_summary_offered": data.get("monthly_summary_offered", False),
-        "monthly_summary_opted_in": data.get("monthly_summary_opted_in", False)
     }
     
     db.update_coaching_session(cursor, session["id"], session_updates)
-    db.increment_trial_session_count(cursor, parent_id)
-    
-    logger.info(f"Coaching session completed for parent {parent_id}")
+    logger.info(f"Updated coaching session {session['id']} for parent {parent_id}")
+
+    # Schedule follow-up
+    parent_info = db.get_parent_by_id(cursor, parent_id)
+    scheduler.schedule_single_event(
+        parent_info["whatsapp_id"], 
+        session["id"], 
+        "3_day_follow_up", 
+        3
+    )
+    logger.info(f"Coaching session follow-up scheduled for parent {parent_id}")
 
 
 def handle_schedule_monthly_summary(cursor: Psycopg2Cursor, parent_id: int, data: Dict[str, Any]) -> None:
@@ -208,6 +239,7 @@ ACTION_HANDLERS = {
     "send_to_clinics": handle_send_to_clinics,
     "complete_coaching_session": handle_coaching_session_completed,
     "update_coaching_session_result": handle_update_coaching_session_result,
+    "schedule_follow_up": handle_schedule_follow_up,
     "schedule_monthly_summary": handle_schedule_monthly_summary,
     "trigger_escalation": handle_trigger_escalation,
     "provide_subscription_link": handle_provide_subscription_link,

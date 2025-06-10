@@ -27,15 +27,15 @@ def create_trial_schedules(whatsapp_id: str, coaching_session_id: int) -> None:
         {"name": "day-7-nudge", "days": 7, "type": "nudge_day_7_soft_introduction"},
         {"name": "day-14-nudge", "days": 14, "type": "nudge_day_14_low_usage"},
         {"name": "day-20-conversion", "days": 20, "type": "nudge_day_20_conversion"},
-        {"name": "day-28-reminder", "days": 28, "type": "nudge_day_28_reminder"},
+        {"name": "day-28-reminder", "days": 28, "type": "nudge_day_28_final_reminder"},
         {"name": "day-30-expiry", "days": 30, "type": "trial_expiry"},
     ]
 
     logger.info(f"Creating trial schedules for user {whatsapp_id}")
 
     for schedule_info in schedules_to_create:
-        schedule_name = f"{schedule_info['name']}-{whatsapp_id}-{datetime.now().strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:6]}"
-        # schedule_time = now_utc + timedelta(days=schedule_info['days'])
+        # schedule_name = f"{schedule_info['name']}-{whatsapp_id}-{datetime.now().strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:6]}"
+        schedule_time = now_utc + timedelta(days=schedule_info['days'])
         schedule_time = now_utc + timedelta(minutes=5 + schedule_info['days'] // 7)
         
         # Time format: at(yyyy-mm-ddThh:mm:ss)
@@ -78,8 +78,8 @@ def schedule_single_event(whatsapp_id: str, coaching_session_id: int, event_type
         days_from_now (int): The number of days from now to schedule the event.
     """
     now_utc = datetime.now(timezone.utc)
-    # schedule_time = now_utc + timedelta(days=days_from_now) - timedelta(minutes=15)
-    schedule_time = now_utc + timedelta(minutes=5 + days_from_now // 10)
+    schedule_time = now_utc + timedelta(days=days_from_now) - timedelta(minutes=15)
+    # schedule_time = now_utc + timedelta(minutes=5 + days_from_now // 10)
     schedule_expression = f"at({schedule_time.strftime('%Y-%m-%dT%H:%M:%S')})"
     
     # Create a unique name for the schedule to avoid conflicts and manage it easily

@@ -54,7 +54,7 @@ CREATE TABLE parents (
     sent_nudge_day_7_soft_introduction BOOLEAN NOT NULL DEFAULT FALSE,
     sent_nudge_day_14_low_usage BOOLEAN NOT NULL DEFAULT FALSE,
     sent_nudge_day_20_conversion BOOLEAN NOT NULL DEFAULT FALSE,
-    sent_nudge_day_28_reminder BOOLEAN NOT NULL DEFAULT FALSE,
+    sent_nudge_day_28_final_reminder BOOLEAN NOT NULL DEFAULT FALSE,
     monthly_summary_offered BOOLEAN NOT NULL DEFAULT FALSE,
     monthly_summary_opted_in BOOLEAN NOT NULL DEFAULT FALSE,
     monthly_summary_sent_at TIMESTAMPTZ,
@@ -163,9 +163,143 @@ CREATE TABLE escalation_logs (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- =================================================================
+-- NUDGE MANAGEMENT FUNCTIONS
+-- =================================================================
+
+CREATE OR REPLACE FUNCTION can_send_nudge_to_user(
+    p_whatsapp_id VARCHAR(255),
+    p_nudge_type VARCHAR(50)
+) RETURNS BOOLEAN AS $$
+DECLARE
+    v_parent RECORD;
+    v_days_since_trial_start INTEGER;
+    v_session_count INTEGER;
+    v_should_send BOOLEAN := FALSE;
+BEGIN
+    -- Get parent details
+    SELECT 
+        p.*,
+        COALESCE(EXTRACT(DAY FROM (NOW() - p.trial_start_date)), 0)::INTEGER as trial_days
+    INTO v_parent
+    FROM parents p
+    WHERE p.whatsapp_id = p_whatsapp_id;
+    
+    -- If parent not found or not in trial, don't send
+    IF v_parent IS NULL OR v_parent.subscription_status != 'trialing' THEN
+        RETURN FALSE;
+    END IF;
+
+    -- Get session count
+    SELECT COUNT(*) INTO v_session_count 
+    FROM coaching_sessions 
+    WHERE parent_id = v_parent.id;
+
+    -- Check nudge type and conditions
+    CASE p_nudge_type
+        WHEN 'day_7_soft_introduction' THEN
+            -- Day 7: Soft Re-Introduction
+            IF v_parent.trial_days >= 7 
+               AND NOT v_parent.sent_nudge_day_7_soft_introduction 
+               AND v_session_count <= 1 THEN
+                v_should_send := TRUE;
+            END IF;
+            
+        WHEN 'day_14_low_usage' THEN
+            -- Day 14: Low Usage
+            IF v_parent.trial_days >= 14 
+               AND NOT v_parent.sent_nudge_day_14_low_usage 
+               AND v_session_count <= 1 THEN
+                v_should_send := TRUE;
+            END IF;
+            
+        WHEN 'day_20_conversion' THEN
+            -- Day 20: Conversion Prompt
+            IF v_parent.trial_days >= 20 
+               AND NOT v_parent.sent_nudge_day_20_conversion 
+               AND v_session_count >= 2 
+               AND v_parent.subscription_status = 'trialing' THEN
+                v_should_send := TRUE;
+            END IF;
+            
+        WHEN 'day_28_final_reminder' THEN
+            -- Day 28: Final Reminder
+            IF v_parent.trial_days >= 28 
+               AND NOT v_parent.sent_nudge_day_28_final_reminder 
+               AND v_parent.subscription_status = 'trialing' THEN
+                v_should_send := TRUE;
+            END IF;
+            
+        ELSE
+            -- Unknown nudge type
+            v_should_send := TRUE;
+    END CASE;
+    
+    RETURN v_should_send;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- =================================================================
--- INDEXES (largely the same, very well-defined)
+-- MONTHLY REPORT FUNCTION
+-- =================================================================
+
+CREATE OR REPLACE FUNCTION create_monthly_report(
+    p_whatsapp_id VARCHAR(255)
+) RETURNS TEXT AS $$
+DECLARE
+    v_parent_id BIGINT;
+    v_successful_follow_ups INTEGER;
+    v_total_sessions INTEGER;
+    v_report_text TEXT;
+BEGIN
+    -- Get parent ID
+    SELECT id INTO v_parent_id 
+    FROM parents 
+    WHERE whatsapp_id = p_whatsapp_id;
+    
+    IF v_parent_id IS NULL THEN
+        RETURN NULL;
+    END IF;
+    
+    -- Count successful follow-ups in the last 30 days
+    SELECT COUNT(*) INTO v_successful_follow_ups
+    FROM coaching_sessions
+    WHERE parent_id = v_parent_id
+      AND follow_up_outcome = 'succeeded'
+      AND session_end_time >= (NOW() - INTERVAL '30 days');
+    
+    -- Count total completed sessions in the last 30 days
+    SELECT COUNT(*) INTO v_total_sessions
+    FROM coaching_sessions
+    WHERE parent_id = v_parent_id
+      AND status = 'completed'
+      AND session_end_time >= (NOW() - INTERVAL '30 days');
+    
+    -- Generate report text
+    v_report_text := CONCAT(
+        '📊 *Your Monthly Coaching Report* 📊\n\n',
+        'Here is a summary of your coaching journey this month:\n\n',
+        '✅ *Successful Follow-ups*: ', v_successful_follow_ups, '\n',
+        '💬 *Total Coaching Sessions*: ', v_total_sessions, '\n\n',
+        'Keep up the great work! If you have any questions or need support, feel free to reach out.'
+    );
+    
+    -- Update the last report timestamp
+    UPDATE parents 
+    SET monthly_summary_sent_at = NOW()
+    WHERE id = v_parent_id;
+    
+    RETURN v_report_text;
+EXCEPTION
+    WHEN OTHERS THEN
+        -- Log the error and return NULL
+        RAISE NOTICE 'Error generating monthly report: %', SQLERRM;
+        RETURN NULL;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- =================================================================
+-- INDEXES
 -- =================================================================
 CREATE INDEX IF NOT EXISTS idx_parents_whatsapp_id ON parents(whatsapp_id);
 CREATE INDEX IF NOT EXISTS idx_parents_email ON parents(email);

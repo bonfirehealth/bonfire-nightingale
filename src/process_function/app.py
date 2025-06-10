@@ -23,11 +23,11 @@ def lambda_handler(event: dict, context: dict) -> dict:
         body = json.loads(record.get("body", "{}"))
         logger.info(f"Received SQS message: {body}")
         
-        user_phone = body.get("waId")
+        whatsapp_id = body.get("waId")
         parent_name = body.get("senderName")
         user_message = body.get("text")
 
-        if not user_phone or not user_message:
+        if not whatsapp_id or not user_message:
             logger.error("Missing phone number or message in the request.")
             return {"statusCode": 400, "body": "Invalid request format"}
 
@@ -36,8 +36,8 @@ def lambda_handler(event: dict, context: dict) -> dict:
         with conn.cursor() as cursor:
             
             # 3. Find or create the parent record
-            logger.debug(f"Finding or creating parent record for phone number: {user_phone}")
-            parent_data = db.get_or_create_parent(cursor, parent_name, user_phone)
+            logger.debug(f"Finding or creating parent record for phone number: {whatsapp_id}")
+            parent_data = db.get_or_create_parent(cursor, parent_name, whatsapp_id)
             parent_id = parent_data['id']
             
             # 4. Log the incoming user message
@@ -72,8 +72,8 @@ def lambda_handler(event: dict, context: dict) -> dict:
             
             # 11. Send the reply back to the user via Wati
             if not ai_response.get("data", {}).get("suppress_message", False):
-                logger.debug(f"Sending AI reply to user {user_phone}")
-                wati.send_wati_message(user_phone, ai_reply_text)
+                logger.debug(f"Sending AI reply to user {whatsapp_id}")
+                wati.send_wati_message(whatsapp_id, ai_reply_text)
             else:
                 logger.debug(f"Suppressing AI reply for parent {parent_id}")
 
@@ -92,12 +92,12 @@ def lambda_handler(event: dict, context: dict) -> dict:
                 logger.error(f"Failed to rollback DB transaction: {rollback_err}")
         
         # Optionally, send a generic error message to the user
-        user_phone = body.get("waId") if 'body' in locals() and isinstance(body, dict) else None
-        if user_phone:
-            try:
-                wati.send_wati_message(user_phone, "I'm sorry, I seem to be having a technical issue. Please try again in a moment.")
-            except Exception as notify_err:
-                logger.error(f"Could not notify user of error: {notify_err}\nTraceback:\n{traceback.format_exc()}")
+        whatsapp_id = body.get("waId") if 'body' in locals() and isinstance(body, dict) else None
+        # if whatsapp_id:
+        #     try:
+        #         wati.send_wati_message(whatsapp_id, "I'm sorry, I seem to be having a technical issue. Please try again in a moment.")
+        #     except Exception as notify_err:
+        #         logger.error(f"Could not notify user of error: {notify_err}\nTraceback:\n{traceback.format_exc()}")
 
         return {"statusCode": 500, "body": "Internal Server Error"}
 
@@ -117,10 +117,10 @@ def process_ai_actions(cursor: Psycopg2Cursor, parent_id: int, ai_response: Dict
     
     # Update mode
     if "next_mode" in ai_response:
-        db.update_current_mode(cursor, parent_id, ai_response["next_mode"])
-        logger.info(f"Updated mode for parent {parent_id} to {ai_response['next_mode']}")
+        parent_preferences = {
+            "current_mode": ai_response["next_mode"],
+            "current_step": ai_response["next_step"]
+        }
+        db.update_parent_preferences(cursor, parent_id, parent_preferences)
+        logger.info(f"Updated mode for parent {parent_id} to {ai_response['next_mode']} and step to {ai_response['next_step']}")
     
-    # Update step
-    if "next_step" in ai_response:
-        db.update_current_step(cursor, parent_id, ai_response["next_step"])
-        logger.info(f"Updated step for parent {parent_id} to {ai_response['next_step']}")

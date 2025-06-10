@@ -49,10 +49,17 @@ def lambda_handler(event: dict, context: dict) -> dict:
         elif nudge_type == "monthly_summary":
             logger.info(f"Executing monthly summary for user {whatsapp_id}")
 
-            # 
-            
-            # Send message to parent
-            wati.send_message(whatsapp_id, "Hello! This is Nightingale again, your AI Parenting Coach from Bonfire Pediatrics. Just checking in — it's been a couple of weeks since you got our parent guidebook, and I wanted to see how things have been going. If anything's been weighing on you lately — whether it's stress at home, a tough moment with your child, or something you've been second-guessing. What has bothered you in the past week?")
+            # Get monthly report
+            with db_conn.cursor() as cursor:
+                cursor.execute("SELECT create_monthly_report(%s);", (whatsapp_id,))
+                monthly_report = cursor.fetchone()
+                
+                if monthly_report:
+                    message = monthly_report[0]
+                    wati.send_message(whatsapp_id, message)
+                    logger.info(f"Sent monthly summary to user {whatsapp_id}")
+                else:
+                    logger.info(f"No monthly report found for user {whatsapp_id}")
 
             # Update parent info
             with db_conn.cursor() as cursor:
@@ -60,17 +67,15 @@ def lambda_handler(event: dict, context: dict) -> dict:
                     "UPDATE parents SET monthly_summary_sent_at = CURRENT_TIMESTAMP WHERE whatsapp_id = %s",
                     (whatsapp_id,)
                 )
-
-            db_conn.commit()
+                db_conn.commit()
+                logger.info(f"Updated monthly summary sent at for user {whatsapp_id}")
 
         elif nudge_type.startswith("nudge_day_") or nudge_type == "trial_expiry":
-            nudge_day = int(nudge_type.split('_')[2]) if nudge_type.startswith("nudge_day_") else 30
-            
             try:
                 # Start transaction
                 with db_conn.cursor() as cursor:
                     # 1. Check if we can send the nudge
-                    cursor.execute("SELECT can_send_nudge_to_user(%s, %s);", (whatsapp_id, nudge_day))
+                    cursor.execute("SELECT can_send_nudge_to_user(%s, %s);", (whatsapp_id, nudge_type))
                     can_send = cursor.fetchone()[0]
 
                 if not can_send:
@@ -99,8 +104,8 @@ def lambda_handler(event: dict, context: dict) -> dict:
                 elif nudge_type == "nudge_day_20_conversion":
                     set_clause = "sent_nudge_day_20_conversion = TRUE"
 
-                elif nudge_type == "nudge_day_28_reminder":
-                    set_clause = "sent_nudge_day_28_reminder = TRUE"
+                elif nudge_type == "nudge_day_28_final_reminder":
+                    set_clause = "sent_nudge_day_28_final_reminder = TRUE"
 
                 elif nudge_type == "trial_expiry":
                     set_clause = "subscription_status = 'trial_expired'"

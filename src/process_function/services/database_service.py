@@ -49,22 +49,22 @@ def _row_to_dict(cursor: Psycopg2Cursor, row: tuple) -> Dict[str, Any]:
 # PARENT OPERATIONS
 # =============================================================================
 
-def get_or_create_parent(cursor: Psycopg2Cursor, full_name: str, phone_number: str) -> Dict[str, Any]:
+def get_or_create_parent(cursor: Psycopg2Cursor, full_name: str, whatsapp_id: str) -> Dict[str, Any]:
     """
     Find parent by phone number or create new one.
     
     Args:
         cursor: Database cursor
         full_name: Parent's full name
-        phone_number: Parent's phone number
+        whatsapp_id: Parent's whatsapp id
         
     Returns:
         Parent data as dictionary
     """
     # Try to find existing parent
     cursor.execute(
-        "SELECT * FROM parents WHERE phone_number = %s", 
-        (phone_number,)
+        "SELECT * FROM parents WHERE whatsapp_id = %s", 
+        (whatsapp_id,)
     )
     parent = cursor.fetchone()
     
@@ -78,10 +78,10 @@ def get_or_create_parent(cursor: Psycopg2Cursor, full_name: str, phone_number: s
         VALUES (%s, %s, %s)
         RETURNING *
         """,
-        (full_name, phone_number, phone_number)
+        (full_name, whatsapp_id, whatsapp_id)
     )
     new_parent = cursor.fetchone()
-    logger.info(f"New parent created: {phone_number}")
+    logger.info(f"New parent created: {whatsapp_id}")
     return _row_to_dict(cursor, new_parent)
 
 
@@ -171,9 +171,9 @@ def activate_trial_plan(cursor: Psycopg2Cursor, parent_id: int) -> None:
     )
 
 
-def increment_trial_session_count(cursor: Psycopg2Cursor, parent_id: int) -> None:
+def increment_session_count(cursor: Psycopg2Cursor, parent_id: int) -> None:
     """
-    Increment trial session count for parent.
+    Increment session count for parent.
     
     Args:
         cursor: Database cursor
@@ -182,8 +182,8 @@ def increment_trial_session_count(cursor: Psycopg2Cursor, parent_id: int) -> Non
     cursor.execute(
         """
         UPDATE parents 
-        SET trial_session_count = trial_session_count + 1
-        WHERE subscription_status = 'trialing' AND id = %s
+        SET session_count = session_count + 1
+        WHERE (subscription_status = 'trialing' OR subscription_status = 'active_paid') AND id = %s
         """,
         (parent_id,)
     )
@@ -262,6 +262,21 @@ def get_children_by_parent(cursor: Psycopg2Cursor, parent_id: int) -> List[Dict[
     children = cursor.fetchall()
     return [_row_to_dict(cursor, child) for child in children]
 
+
+def get_all_children(cursor: Psycopg2Cursor, parent_id: int) -> List[Dict[str, Any]]:
+    """
+    Get all children.
+    
+    Args:
+        cursor: Database cursor
+        parent_id: Parent's ID
+        
+    Returns:
+        List of child data dictionaries
+    """
+    cursor.execute("SELECT * FROM children WHERE parent_id = %s", (parent_id,))
+    children = cursor.fetchall()
+    return [_row_to_dict(cursor, child) for child in children]
 
 # =============================================================================
 # APPOINTMENT OPERATIONS
