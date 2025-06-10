@@ -81,7 +81,7 @@ def handle_payment_success(event_data):
         # Send WATI message to user
         if customer_email:
             # TODO:
-            # wati.send_wati_message(customer_email, "Thank you for your payment!")
+            # wati.send_text_message(customer_email, "Thank you for your payment!")
             pass
             
     except Exception as e:
@@ -117,7 +117,7 @@ def handle_payment_failed(event_data):
         # Send WATI message to user
         if customer_email:
             # TODO:
-            # wati.send_wati_message(customer_email, "Payment failed. Please try again.")
+            # wati.send_text_message(customer_email, "Payment failed. Please try again.")
             pass
             
     except Exception as e:

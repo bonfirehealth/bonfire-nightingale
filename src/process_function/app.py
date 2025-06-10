@@ -73,7 +73,7 @@ def lambda_handler(event: dict, context: dict) -> dict:
             # 11. Send the reply back to the user via Wati
             if not ai_response.get("data", {}).get("suppress_message", False):
                 logger.debug(f"Sending AI reply to user {whatsapp_id}")
-                wati.send_wati_message(whatsapp_id, ai_reply_text)
+                wati.send_text_message(whatsapp_id, ai_reply_text)
             else:
                 logger.debug(f"Suppressing AI reply for parent {parent_id}")
 
@@ -95,7 +95,7 @@ def lambda_handler(event: dict, context: dict) -> dict:
         whatsapp_id = body.get("waId") if 'body' in locals() and isinstance(body, dict) else None
         # if whatsapp_id:
         #     try:
-        #         wati.send_wati_message(whatsapp_id, "I'm sorry, I seem to be having a technical issue. Please try again in a moment.")
+        #         wati.send_text_message(whatsapp_id, "I'm sorry, I seem to be having a technical issue. Please try again in a moment.")
         #     except Exception as notify_err:
         #         logger.error(f"Could not notify user of error: {notify_err}\nTraceback:\n{traceback.format_exc()}")
 

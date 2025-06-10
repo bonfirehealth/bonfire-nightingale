@@ -227,10 +227,22 @@ def handle_trigger_escalation(cursor: Psycopg2Cursor, parent_id: int, data: Dict
     
     logger.info(f"Escalation triggered for parent {parent_id}")
 
-
-def handle_provide_subscription_link(cursor: Psycopg2Cursor, parent_id: int, data: Dict[str, Any]) -> None:
+def handle_process_appointment_payment(cursor: Psycopg2Cursor, parent_id: int, data: Dict[str, Any]) -> None:
     """
-    Handle subscription link generation and delivery.
+    Handle appointment payment processing.
+    
+    Args:
+        cursor: Database cursor
+        parent_id: Parent's ID
+        data: Appointment payment data
+    """
+    # Send a PayNow QR code to the parent
+    parent_info = db.get_parent_by_id(cursor, parent_id)
+    wati.send_template_message(parent_info["whatsapp_id"], "paynow_qr", "paynow_qr")
+
+def handle_process_subscription_payment(cursor: Psycopg2Cursor, parent_id: int, data: Dict[str, Any]) -> None:
+    """
+    Handle subscription payment processing.
     
     Args:
         cursor: Database cursor
@@ -245,7 +257,7 @@ def handle_provide_subscription_link(cursor: Psycopg2Cursor, parent_id: int, dat
     # Send subscription link unless suppressed
     if not data.get("suppress_message", False):
         message = f"Here is the link to subscribe to our plan: {session['url']}"
-        wati.send_wati_message(parent_info["whatsapp_id"], message)
+        wati.send_text_message(parent_info["whatsapp_id"], message)
     
     logger.info(f"Subscription link provided to parent {parent_id}")
 
@@ -259,7 +271,8 @@ ACTION_HANDLERS = {
     "schedule_follow_up": handle_schedule_follow_up,
     "schedule_monthly_summary": handle_schedule_monthly_summary,
     "trigger_escalation": handle_trigger_escalation,
-    "provide_subscription_link": handle_provide_subscription_link,
+    "process_appointment_payment": handle_process_appointment_payment,
+    "process_subscription_payment": handle_process_subscription_payment,
 }
 
 
