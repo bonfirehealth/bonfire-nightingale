@@ -61,28 +61,22 @@ def get_or_create_parent(cursor: Psycopg2Cursor, full_name: str, whatsapp_id: st
     Returns:
         Parent data as dictionary
     """
-    # Try to find existing parent
-    cursor.execute(
-        "SELECT * FROM parents WHERE whatsapp_id = %s", 
-        (whatsapp_id,)
-    )
-    parent = cursor.fetchone()
-    
-    if parent:
-        return _row_to_dict(cursor, parent)
-    
-    # Create new parent
     cursor.execute(
         """
         INSERT INTO parents (full_name, whatsapp_id, phone_number)
         VALUES (%s, %s, %s)
+        ON CONFLICT (whatsapp_id) DO UPDATE 
+        SET full_name = EXCLUDED.full_name
         RETURNING *
         """,
         (full_name, whatsapp_id, whatsapp_id)
     )
-    new_parent = cursor.fetchone()
-    logger.info(f"New parent created: {whatsapp_id}")
-    return _row_to_dict(cursor, new_parent)
+    
+    parent = cursor.fetchone()
+    if not parent:
+        raise Exception("Failed to create or retrieve parent record")
+        
+    return _row_to_dict(cursor, parent)
 
 
 def get_parent_by_id(cursor: Psycopg2Cursor, parent_id: int) -> Dict[str, Any]:
@@ -161,14 +155,31 @@ def activate_trial_plan(cursor: Psycopg2Cursor, parent_id: int) -> None:
         cursor: Database cursor
         parent_id: Parent's ID
     """
+    # Check if user's subscription status is `pre_trial`
+    cursor.execute(
+        "SELECT subscription_status FROM parents WHERE id = %s",
+        (parent_id,)
+    )
+    result = cursor.fetchone()
+    if result is None:
+        raise ValueError(f"Parent with ID {parent_id} not found")
+        
+    subscription_status = result[0]
+    logger.debug(f"Parent {parent_id} subscription status: {subscription_status}")
+    
+    if subscription_status != "pre_trial":
+        return
+
+    # Only activate trial if parent's subscription status is `pre_trial`
     cursor.execute(
         """
         UPDATE parents 
         SET subscription_status = 'trialing', trial_start_date = NOW()
-        WHERE id = %s
+        WHERE id = %s AND subscription_status = 'pre_trial'
         """,
         (parent_id,)
     )
+    logger.info(f"Trial activated for parent {parent_id}")
 
 
 def increment_session_count(cursor: Psycopg2Cursor, parent_id: int) -> None:
@@ -413,6 +424,49 @@ def update_coaching_session(cursor: Psycopg2Cursor, session_id: int, updates: Di
     cursor.execute(
         f"UPDATE coaching_sessions SET {set_clause} WHERE id = %s",
         (*filtered_updates.values(), session_id)
+    )
+
+def should_schedule_nudges(cursor: Psycopg2Cursor, parent_id: int) -> bool:
+    """
+    Check if parent should receive nudges.
+    
+    Args:
+        cursor: Database cursor
+        parent_id: Parent's ID
+        
+    Returns:
+        True if any nudges should be scheduled, False otherwise
+    """
+    cursor.execute(
+        """
+        SELECT subscription_status, sent_nudge_day_7_soft_introduction, 
+        sent_nudge_day_14_low_usage, sent_nudge_day_20_conversion,
+        sent_nudge_day_28_final_reminder
+        FROM parents WHERE id = %s
+        """,
+        (parent_id,)
+    )
+    result = cursor.fetchone()
+
+    if result is None:
+        raise ValueError(f"Parent with ID {parent_id} not found")
+    
+    subscription_status = result[0]
+    sent_nudge_day_7_soft_introduction = result[1]
+    sent_nudge_day_14_low_usage = result[2]
+    sent_nudge_day_20_conversion = result[3]
+    sent_nudge_day_28_final_reminder = result[4]
+    
+    logger.debug(f"Parent {parent_id} subscription status: {subscription_status}")
+    
+    return (
+        subscription_status == "trialing" and
+        any([
+            sent_nudge_day_7_soft_introduction == False, 
+            sent_nudge_day_14_low_usage == False, 
+            sent_nudge_day_20_conversion == False, 
+            sent_nudge_day_28_final_reminder == False
+        ])
     )
 
 

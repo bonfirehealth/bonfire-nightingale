@@ -34,9 +34,9 @@ def create_trial_schedules(whatsapp_id: str, coaching_session_id: int) -> None:
     logger.info(f"Creating trial schedules for user {whatsapp_id}")
 
     for schedule_info in schedules_to_create:
-        # schedule_name = f"{schedule_info['name']}-{whatsapp_id}-{datetime.now().strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:6]}"
+        schedule_name = f"{schedule_info['name']}-{whatsapp_id}-{datetime.now().strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:6]}"
         schedule_time = now_utc + timedelta(days=schedule_info['days'])
-        schedule_time = now_utc + timedelta(minutes=5 + schedule_info['days'] // 7)
+        # schedule_time = now_utc + timedelta(minutes=5 + schedule_info['days'] // 7)
         
         # Time format: at(yyyy-mm-ddThh:mm:ss)
         schedule_expression = f"at({schedule_time.strftime('%Y-%m-%dT%H:%M:%S')})"

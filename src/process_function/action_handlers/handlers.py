@@ -24,10 +24,9 @@ def handle_continue_conversation(cursor: Psycopg2Cursor, parent_id: int, data: D
         parent_id: Parent's ID
         data: Action data containing optional child info
     """
-    parent_info = db.get_parent_by_id(cursor, parent_id)
-    
     # Activate trial if parent is in pre-trial status
-    if parent_info["subscription_status"] == "pre_trial":
+    parent_info = db.get_parent_by_id(cursor, parent_id)
+    if data.get("trial_activated", False) and parent_info["subscription_status"] == "pre_trial":
         db.activate_trial_plan(cursor, parent_id)
         logger.info(f"Trial activated for parent {parent_id}")
     
@@ -40,6 +39,11 @@ def handle_continue_conversation(cursor: Psycopg2Cursor, parent_id: int, data: D
             data.get("child_age")
         )
         logger.info(f"Child record updated: {child_record['id']}")
+    
+    # Set WTW employee flag if parent mentions WTW
+    if data.get("is_wtw_employee", False):
+        db.update_parent_preferences(cursor, parent_id, {"is_wtw_employee": True})
+        logger.info(f"WTW employee flag set for parent {parent_id}")
 
 
 def handle_send_to_clinics(cursor: Psycopg2Cursor, parent_id: int, data: Dict[str, Any]) -> None:
@@ -92,6 +96,12 @@ def handle_coaching_session_completed(cursor: Psycopg2Cursor, parent_id: int, da
     if not session:
         session = db.create_coaching_session(cursor, parent_id)
     
+    # If user's subscription is `pre_trial`, activate trial plan
+    parent_info = db.get_parent_by_id(cursor, parent_id)
+    if parent_info["subscription_status"] == "pre_trial":
+        db.activate_trial_plan(cursor, parent_id)
+        logger.info(f"Trial activated for parent {parent_id}")
+    
     # Update session with completion data
     session_updates = {
         "status": "completed",
@@ -131,15 +141,22 @@ def handle_schedule_follow_up(cursor: Psycopg2Cursor, parent_id: int, data: Dict
     db.update_coaching_session(cursor, session["id"], session_updates)
     logger.info(f"Updated coaching session {session['id']} for parent {parent_id}")
 
-    # Schedule follow-up
     parent_info = db.get_parent_by_id(cursor, parent_id)
-    scheduler.schedule_single_event(
-        parent_info["whatsapp_id"], 
-        session["id"], 
-        "3_day_follow_up", 
-        3
-    )
-    logger.info(f"Coaching session follow-up scheduled for parent {parent_id}")
+
+    # Should we schedule nudges?
+    if db.should_schedule_nudges(cursor, parent_id):
+        scheduler.create_trial_schedules(parent_info["whatsapp_id"], session["id"])
+        logger.info(f"Nudges scheduled for parent {parent_id}")
+
+    # Schedule follow-up
+    if data.get("follow_up_scheduled", False):
+        scheduler.schedule_single_event(
+            parent_info["whatsapp_id"], 
+            session["id"], 
+            "3_day_follow_up", 
+            3
+        )
+        logger.info(f"Coaching session follow-up scheduled for parent {parent_id}")
 
 
 def handle_schedule_monthly_summary(cursor: Psycopg2Cursor, parent_id: int, data: Dict[str, Any]) -> None:
