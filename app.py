@@ -4,7 +4,6 @@ import aws_cdk as cdk
 from stacks.vpc_network_stack import VpcNetworkStack
 from stacks.secrets_stack import SecretsStack
 from stacks.database_stack import DatabaseStack
-from stacks.dynamodb_stack import DynamoDBStack
 from stacks.messaging_stack import MessagingStack
 from stacks.api_lambda_stack import ApiLambdaStack
 from stacks.nudge_executor_stack import NudgeExecutorStack
@@ -72,11 +71,6 @@ messaging_stack = MessagingStack(app, f"NightingaleMessagingStack-{environment_n
     **stack_props
 )
 
-# Stack for DynamoDB
-dynamodb_stack = DynamoDBStack(app, f"NightingaleDynamoDBStack-{environment_name}",
-    **stack_props
-)
-
 # Stack for Nudge Executor Function
 nudge_executor_stack = NudgeExecutorStack(app, f"NightingaleNudgeExecutorStack-{environment_name}",
     vpc=vpc_stack.vpc,
@@ -98,8 +92,6 @@ api_lambda_stack = ApiLambdaStack(app, f"NightingaleApiLambdaStack-{environment_
     vpc=vpc_stack.vpc,
     lambda_security_group=vpc_stack.lambda_security_group,
     message_queue=messaging_stack.message_queue,
-    active_users_table=dynamodb_stack.active_users_table,
-    metrics_table=dynamodb_stack.metrics_table,
     db_cluster=db_stack.db_cluster,
     db_credentials_secret=db_stack.db_credentials_secret,
     db_name=db_name,
@@ -112,7 +104,6 @@ api_lambda_stack = ApiLambdaStack(app, f"NightingaleApiLambdaStack-{environment_
 api_lambda_stack.add_dependency(vpc_stack)
 api_lambda_stack.add_dependency(db_stack)
 api_lambda_stack.add_dependency(messaging_stack)
-api_lambda_stack.add_dependency(dynamodb_stack)
 api_lambda_stack.add_dependency(secrets_stack)
 api_lambda_stack.add_dependency(nudge_executor_stack)
 

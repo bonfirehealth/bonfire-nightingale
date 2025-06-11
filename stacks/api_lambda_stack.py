@@ -8,7 +8,6 @@ from aws_cdk import (
     aws_rds as rds,
     aws_secretsmanager as secretsmanager,
     aws_iam as iam,
-    aws_dynamodb as dynamodb,
     aws_lambda_event_sources as lambda_event_sources,
     aws_scheduler as scheduler,  # Add this import for EventBridge Scheduler
     Duration,
@@ -23,8 +22,6 @@ class ApiLambdaStack(Stack):
                  vpc: ec2.IVpc,
                  lambda_security_group: ec2.ISecurityGroup,
                  message_queue: sqs.IQueue,
-                 active_users_table: dynamodb.ITable,
-                 metrics_table: dynamodb.ITable,
                  db_cluster: rds.IDatabaseCluster,
                  db_credentials_secret: secretsmanager.ISecret,
                  application_secrets_arn: str,
@@ -64,9 +61,6 @@ class ApiLambdaStack(Stack):
         application_secrets_object.grant_read(process_lambda_role)
         message_queue.grant_consume_messages(process_lambda_role)
 
-        # Grant permission to read/write data in Active Users Table
-        active_users_table.grant_read_write_data(ingest_lambda_role)
-
         # Role for Stripe Webhook Lambda
         stripe_lambda_role = iam.Role(self, "StripeWebhookLambdaRole",
             assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
@@ -77,6 +71,17 @@ class ApiLambdaStack(Stack):
         )
         db_credentials_secret.grant_read(stripe_lambda_role)
         application_secrets_object.grant_read(stripe_lambda_role)
+
+        # Role for Dashboard Lambda
+        dashboard_lambda_role = iam.Role(self, "DashboardLambdaRole",
+            assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
+            managed_policies=[
+                iam.ManagedPolicy.from_aws_managed_policy_name("service-role/AWSLambdaBasicExecutionRole"),
+                iam.ManagedPolicy.from_aws_managed_policy_name("service-role/AWSLambdaVPCAccessExecutionRole") # Cần để chạy trong VPC
+            ]
+        )
+        db_credentials_secret.grant_read(dashboard_lambda_role)
+        application_secrets_object.grant_read(dashboard_lambda_role)
 
         # 1. Create IAM Role for EventBridge Scheduler to invoke Nudge Executor Lambda
         scheduler_role = iam.Role(self, "EventBridgeSchedulerRole",
@@ -153,7 +158,6 @@ class ApiLambdaStack(Stack):
             environment={
                 **common_lambda_env,
                 "MESSAGE_QUEUE_URL": message_queue.queue_url,
-                "ACTIVE_USERS_TABLE_NAME": active_users_table.table_name
             },
         )
 
@@ -186,29 +190,6 @@ class ApiLambdaStack(Stack):
         )
         message_queue.grant_consume_messages(process_function) # Grant permission to consume messages from SQS
 
-        # Active User Counter Function
-        counter_function = lambda_.Function(self, "ActiveUserCounterFunction",
-            runtime=lambda_.Runtime.PYTHON_3_11,
-            handler="app.lambda_handler",
-            code=lambda_.Code.from_asset("src/active_user_counter_function"), # Tạo thư mục này
-            timeout=Duration.seconds(30),
-            memory_size=128,
-            environment={
-                "METRICS_TABLE_NAME": metrics_table.table_name,
-                "COUNTER_METRIC_NAME": "activeUserCount" # Tên của metric trong bảng
-            }
-        )
-        # Cấp quyền cho Lambda đọc/ghi vào bảng Metrics
-        metrics_table.grant_read_write_data(counter_function)
-
-        # Tạo trigger: trigger Lambda này mỗi khi có event trên Stream của ActiveUsersTable
-        counter_function.add_event_source(lambda_event_sources.DynamoEventSource(
-            active_users_table,
-            starting_position=lambda_.StartingPosition.TRIM_HORIZON,
-            batch_size=100, # Xử lý tối đa 100 record mỗi lần invoke
-            retry_attempts=3
-        ))
-
         # Dashboard Function
         dashboard_function = lambda_.Function(self, "DashboardFunction",
             runtime=lambda_.Runtime.PYTHON_3_11,
@@ -225,18 +206,14 @@ class ApiLambdaStack(Stack):
                     ]
                 )
             ),
-            timeout=Duration.seconds(20),
-            memory_size=256, # Tăng nhẹ memory
-            environment={
-                "METRICS_TABLE_NAME": metrics_table.table_name,
-                "COUNTER_METRIC_NAME": "activeUserCount",
-                # THÊM MỚI: Truyền tên bảng active users vào
-                "ACTIVE_USERS_TABLE_NAME": active_users_table.table_name
-            }
+            vpc=vpc,  # Đặt Lambda vào trong VPC
+            vpc_subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS), # Chọn subnet có thể đi ra ngoài nếu cần
+            security_groups=[lambda_security_group], # Dùng SG đã cho phép truy cập RDS
+            role=dashboard_lambda_role, # Gán role vừa tạo
+            timeout=Duration.seconds(30), # Tăng timeout vì query DB có thể chậm
+            memory_size=256,
+            environment=common_lambda_env, # Truyền các biến môi trường DB vào
         )
-        # Cấp quyền cho Lambda chỉ đọc từ bảng Metrics
-        metrics_table.grant_read_data(dashboard_function)
-        active_users_table.grant_read_data(dashboard_function)  # Grant scan permission
 
         # Add SQS event source to ProcessFunction
         process_function.add_event_source(

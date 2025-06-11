@@ -88,7 +88,6 @@ class VpcNetworkStack(Stack):
         )
 
         # (Optional) VPC Endpoints to enhance security and cost savings
-        self.vpc.add_gateway_endpoint("DynamoDbEndpoint", service=ec2.GatewayVpcEndpointAwsService.DYNAMODB)
         self.vpc.add_gateway_endpoint("S3Endpoint", service=ec2.GatewayVpcEndpointAwsService.S3) # Lambda needs to fetch code from S3
         self.vpc.add_interface_endpoint("SecretsManagerEndpoint", service=ec2.InterfaceVpcEndpointAwsService.SECRETS_MANAGER)
         self.vpc.add_interface_endpoint("SQSEndpoint", service=ec2.InterfaceVpcEndpointAwsService.SQS)

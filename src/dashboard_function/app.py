@@ -1,95 +1,143 @@
 import os
 import json
-import base64
 import boto3
+import psycopg2
 from jinja2 import Environment, FileSystemLoader
-from botocore.exceptions import ClientError
 
-# --- Khởi tạo ---
-# Boto3 clients
-dynamodb = boto3.resource('dynamodb')
+# --- Configuration ---
+DB_HOST = os.environ['DB_HOST']
+DB_PORT = os.environ['DB_PORT']
+DB_NAME = os.environ['DB_NAME']
+DB_CREDENTIALS_SECRET_ARN = os.environ['DB_CREDENTIALS_SECRET_ARN']
 
 # Jinja2 environment
 file_loader = FileSystemLoader('templates')
 env = Environment(loader=file_loader)
 
-# Lấy thông tin từ biến môi trường
-METRICS_TABLE_NAME = os.environ['METRICS_TABLE_NAME']
-METRIC_NAME = os.environ['COUNTER_METRIC_NAME']
-ACTIVE_USERS_TABLE_NAME = os.environ['ACTIVE_USERS_TABLE_NAME']
-PAGE_SIZE = 25 # Số lượng user hiển thị mỗi trang
+# Global connection for Lambda reuse
+db_conn = None
 
-metrics_table = dynamodb.Table(METRICS_TABLE_NAME)
-active_users_table = dynamodb.Table(ACTIVE_USERS_TABLE_NAME)
+def get_db_credentials():
+    """Lấy thông tin đăng nhập DB từ AWS Secrets Manager."""
+    secrets_client = boto3.client("secretsmanager")
+    response = secrets_client.get_secret_value(SecretId=DB_CREDENTIALS_SECRET_ARN)
+    return json.loads(response["SecretString"])
 
+def get_db_connection():
+    """Thiết lập hoặc tái sử dụng kết nối DB."""
+    global db_conn
+    if db_conn is None or db_conn.closed:
+        creds = get_db_credentials()
+        try:
+            db_conn = psycopg2.connect(
+                host=DB_HOST,
+                port=DB_PORT,
+                dbname=DB_NAME,
+                user=creds['username'],
+                password=creds['password']
+            )
+            print("Database connection established.")
+        except psycopg2.Error as e:
+            print(f"Database connection failed: {e}")
+            raise
+    return db_conn
 
-def get_total_active_users():
-    """Đọc số tổng từ bảng Metrics (nhanh và hiệu quả)"""
-    try:
-        response = metrics_table.get_item(Key={'activeUserCount': METRIC_NAME})
-        if 'Item' in response:
-            return int(response['Item']['metricValue'])
-    except ClientError as e:
-        print(f"Error reading total count: {e}")
-    return 0
+def fetch_dashboard_metrics(cursor):
+    """Lấy tất cả các chỉ số từ DB bằng một vài câu query."""
+    metrics = {}
+    
+    # 1. MAU (Monthly Active Users)
+    cursor.execute("""
+        SELECT COUNT(DISTINCT parent_id)
+        FROM messages
+        WHERE sender = 'user' AND created_at >= NOW() - INTERVAL '30 days';
+    """)
+    metrics['mau'] = cursor.fetchone()[0]
 
-def get_active_users_page(page_size, start_key=None):
-    """Lấy một trang danh sách user chi tiết bằng cách Scan"""
-    scan_kwargs = {
-        'Limit': page_size,
-        # Chỉ lấy các thuộc tính cần thiết để giảm lượng dữ liệu đọc
-        'ProjectionExpression': "userId, userName"
-    }
-    if start_key:
-        scan_kwargs['ExclusiveStartKey'] = start_key
-        
-    try:
-        response = active_users_table.scan(**scan_kwargs)
-        users = response.get('Items', [])
-        # Lấy token cho trang tiếp theo
-        next_page_token = response.get('LastEvaluatedKey', None)
-        return users, next_page_token
-    except ClientError as e:
-        print(f"Error scanning for active users: {e}")
-        return [], None
+    # 2. New Users (Last 30 days)
+    cursor.execute("""
+        SELECT COUNT(id)
+        FROM parents
+        WHERE created_at >= NOW() - INTERVAL '30 days';
+    """)
+    metrics['new_users_30d'] = cursor.fetchone()[0]
+
+    # 3. Trial Conversion Rate
+    cursor.execute("""
+        SELECT
+            COUNT(id) FILTER (WHERE subscription_status = 'active_paid') AS paid_users,
+            COUNT(id) FILTER (WHERE subscription_status IN ('trial_opted_out', 'trial_expired', 'cancelled')) AS finished_trial_users
+        FROM parents;
+    """)
+    result = cursor.fetchone()
+    paid_users = result[0]
+    finished_trial_users = result[1]
+    total_trial_outcomes = paid_users + finished_trial_users
+    metrics['trial_conversion_rate'] = paid_users / total_trial_outcomes if total_trial_outcomes > 0 else 0
+
+    # 4. Total Coaching Sessions (Last 30 days)
+    cursor.execute("""
+        SELECT COUNT(id)
+        FROM coaching_sessions
+        WHERE session_start_time >= NOW() - INTERVAL '30 days';
+    """)
+    metrics['coaching_sessions_30d'] = cursor.fetchone()[0]
+    
+    return metrics
+
+def fetch_recent_activity(cursor, limit=50):
+    """Lấy hoạt động gần đây của người dùng."""
+    cursor.execute("""
+        WITH last_messages AS (
+            SELECT
+                parent_id,
+                content,
+                created_at,
+                ROW_NUMBER() OVER(PARTITION BY parent_id ORDER BY created_at DESC) as rn
+            FROM messages
+            WHERE sender = 'user'
+        )
+        SELECT
+            p.full_name,
+            p.whatsapp_id,
+            lm.content as last_message_content,
+            lm.created_at as last_message_at
+        FROM last_messages lm
+        JOIN parents p ON lm.parent_id = p.id
+        WHERE lm.rn = 1
+        ORDER BY lm.created_at DESC
+        LIMIT %s;
+    """, (limit,))
+    
+    columns = [desc[0] for desc in cursor.description]
+    return [dict(zip(columns, row)) for row in cursor.fetchall()]
 
 def lambda_handler(event, context):
-    print(f"Received event: {event}")
-    
-    # Lấy tổng số người dùng
-    total_users_count = get_total_active_users()
-    
-    # Xử lý pagination
-    next_token_str = event.get('queryStringParameters', {}).get('nextToken')
-    start_key = None
-    if next_token_str:
-        # DynamoDB token được truyền qua URL, nên cần decode
-        try:
-            start_key = json.loads(base64.b64decode(next_token_str).decode('utf-8'))
-        except Exception as e:
-            print(f"Invalid nextToken format: {e}")
-
-    # Lấy danh sách user cho trang hiện tại
-    users_list, next_page_key = get_active_users_page(PAGE_SIZE, start_key)
-    
-    # Chuẩn bị token cho trang tiếp theo để truyền vào template
-    # Token cần được encode để an toàn khi đặt trong URL
-    next_token_for_url = None
-    if next_page_key:
-        next_token_for_url = base64.b64encode(json.dumps(next_page_key).encode('utf-8')).decode('utf-8')
-
-    # Render HTML
-    template = env.get_template('dashboard.html')
-    html_body = template.render(
-        total_users=total_users_count,
-        users=users_list,
-        next_token=next_token_for_url
-    )
-    
-    return {
-        'statusCode': 200,
-        'headers': {
-            'Content-Type': 'text/html',
-        },
-        'body': html_body
-    }
+    conn = None
+    try:
+        conn = get_db_connection()
+        with conn.cursor() as cursor:
+            metrics = fetch_dashboard_metrics(cursor)
+            recent_activity = fetch_recent_activity(cursor)
+            
+        # Render HTML
+        template = env.get_template('dashboard.html')
+        html_body = template.render(
+            metrics=metrics,
+            recent_activity=recent_activity
+        )
+        
+        return {
+            'statusCode': 200,
+            'headers': { 'Content-Type': 'text/html' },
+            'body': html_body
+        }
+        
+    except Exception as e:
+        print(f"An error occurred: {e}")
+        # Trả về lỗi 500 nếu có vấn đề
+        return {
+            'statusCode': 500,
+            'headers': { 'Content-Type': 'text/html' },
+            'body': '<h1>Internal Server Error</h1><p>Could not retrieve dashboard data.</p>'
+        }
