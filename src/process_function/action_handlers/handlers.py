@@ -151,6 +151,8 @@ def handle_schedule_follow_up(cursor: Psycopg2Cursor, parent_id: int, data: Dict
     if db.should_schedule_nudges(cursor, parent_id):
         scheduler.create_trial_schedules(parent_info["whatsapp_id"], session["id"])
         logger.info(f"Nudges scheduled for parent {parent_id}")
+    else:
+        logger.info(f"Parent {parent_id} is not eligible for nudges")
 
     # Schedule follow-up
     if data.get("follow_up_scheduled", False):
@@ -161,6 +163,8 @@ def handle_schedule_follow_up(cursor: Psycopg2Cursor, parent_id: int, data: Dict
             3
         )
         logger.info(f"Coaching session follow-up scheduled for parent {parent_id}")
+    else:
+        logger.info(f"Follow-up not scheduled for parent {parent_id}")
 
 
 def handle_schedule_monthly_summary(cursor: Psycopg2Cursor, parent_id: int, data: Dict[str, Any]) -> None:

@@ -458,6 +458,14 @@ def should_schedule_nudges(cursor: Psycopg2Cursor, parent_id: int) -> bool:
     sent_nudge_day_28_final_reminder = result[4]
     
     logger.debug(f"Parent {parent_id} subscription status: {subscription_status}")
+
+    if subscription_status == "pre_trial":
+        # Move to `trialing` status
+        cursor.execute(
+            "UPDATE parents SET subscription_status = 'trialing' WHERE id = %s",
+            (parent_id,)
+        )
+        subscription_status = "trialing"
     
     return (
         subscription_status == "trialing" and
