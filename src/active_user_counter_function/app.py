@@ -16,7 +16,7 @@ def lambda_handler(event, context):
         event_name = record['eventName']
         
         # Chỉ quan tâm đến sự kiện INSERT (user mới active) hoặc REMOVE (session hết hạn)
-        if event_name == 'INSERT' or event_name == 'MODIFY':
+        if event_name == 'INSERT':
             insert_count += 1
         elif event_name == 'REMOVE':
             # Rất quan trọng: Chỉ giảm bộ đếm nếu item bị xóa bởi TTL của DynamoDB,
