@@ -1,5 +1,7 @@
 import os
 import json
+import base64
+
 import boto3
 import psycopg2
 from jinja2 import Environment, FileSystemLoader
@@ -9,6 +11,7 @@ DB_HOST = os.environ['DB_HOST']
 DB_PORT = os.environ['DB_PORT']
 DB_NAME = os.environ['DB_NAME']
 DB_CREDENTIALS_SECRET_ARN = os.environ['DB_CREDENTIALS_SECRET_ARN']
+APPLICATION_SECRETS_ARN = os.environ.get("APPLICATION_SECRETS_ARN")
 
 # Jinja2 environment
 file_loader = FileSystemLoader('templates')
@@ -112,7 +115,62 @@ def fetch_recent_activity(cursor, limit=50):
     columns = [desc[0] for desc in cursor.description]
     return [dict(zip(columns, row)) for row in cursor.fetchall()]
 
+cached_dashboard_creds = None
+
+def get_dashboard_credentials():
+    """Lấy và cache thông tin đăng nhập dashboard từ Secrets Manager."""
+    global cached_dashboard_creds
+    if cached_dashboard_creds:
+        return cached_dashboard_creds
+    
+    print("Fetching dashboard credentials from Secrets Manager.")
+    secrets_client = boto3.client("secretsmanager")
+    response = secrets_client.get_secret_value(SecretId=APPLICATION_SECRETS_ARN)
+    cached_dashboard_creds = json.loads(response["SecretString"])
+    return cached_dashboard_creds
+
+def check_auth(event: dict) -> bool:
+    """Kiểm tra thông tin Basic Authentication."""
+    try:
+        # Lấy thông tin đăng nhập đúng từ secret
+        correct_creds = get_dashboard_credentials()
+        correct_user = correct_creds.get("NIGHTINGALE_DASHBOARD_USERNAME")
+        correct_pass = correct_creds.get("NIGHTINGALE_DASHBOARD_PASSWORD")
+
+        # Lấy header Authorization từ request
+        auth_header = event.get('headers', {}).get('authorization')
+        if not auth_header or not auth_header.lower().startswith('basic '):
+            return False
+        
+        # Decode Base64
+        encoded_creds = auth_header.split(' ')[1]
+        decoded_creds = base64.b64decode(encoded_creds).decode('utf-8')
+        
+        # Tách username và password
+        provided_user, provided_pass = decoded_creds.split(':', 1)
+
+        # So sánh (cách an toàn là dùng so sánh hằng thời gian, nhưng ở đây là đủ)
+        return provided_user == correct_user and provided_pass == correct_pass
+
+    except Exception as e:
+        print(f"Authentication check failed: {e}")
+        return False
+
 def lambda_handler(event, context):
+    # --- BƯỚC KIỂM TRA AUTHENTICATION ---
+    if not check_auth(event):
+        print(f"Authentication failed. Event: {event}")
+        # Nếu sai, trả về lỗi 401 để trình duyệt hiện popup đăng nhập
+        return {
+            'statusCode': 401,
+            'headers': {
+                'WWW-Authenticate': 'Basic realm="Nightingale AI Dashboard"'
+            },
+            'body': 'Unauthorized'
+        }
+
+    # --- Nếu pass, chạy logic như cũ ---
+    print("Authentication successful. Proceeding to generate dashboard.")
     conn = None
     try:
         conn = get_db_connection()
@@ -120,7 +178,6 @@ def lambda_handler(event, context):
             metrics = fetch_dashboard_metrics(cursor)
             recent_activity = fetch_recent_activity(cursor)
             
-        # Render HTML
         template = env.get_template('dashboard.html')
         html_body = template.render(
             metrics=metrics,
@@ -134,8 +191,7 @@ def lambda_handler(event, context):
         }
         
     except Exception as e:
-        print(f"An error occurred: {e}")
-        # Trả về lỗi 500 nếu có vấn đề
+        print(f"An error occurred after authentication: {e}")
         return {
             'statusCode': 500,
             'headers': { 'Content-Type': 'text/html' },

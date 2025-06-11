@@ -45,7 +45,11 @@ class SecretsStack(Stack):
             "STRIPE_SECRET_KEY": os.getenv("STRIPE_SECRET_KEY"),
             "STRIPE_WEBHOOK_SECRET": os.getenv("STRIPE_WEBHOOK_SECRET"),
             "STRIPE_WEBHOOK_SUCCESS_URL": os.getenv("STRIPE_WEBHOOK_SUCCESS_URL"),
-            "STRIPE_WEBHOOK_CANCEL_URL": os.getenv("STRIPE_WEBHOOK_CANCEL_URL")
+            "STRIPE_WEBHOOK_CANCEL_URL": os.getenv("STRIPE_WEBHOOK_CANCEL_URL"),
+
+            # Dashboard
+            "NIGHTINGALE_DASHBOARD_USERNAME": os.getenv("NIGHTINGALE_DASHBOARD_USERNAME"),
+            "NIGHTINGALE_DASHBOARD_PASSWORD": os.getenv("NIGHTINGALE_DASHBOARD_PASSWORD")
         }
 
         self.application_secrets = secretsmanager.Secret(self, "ApplicationSecrets", # ID logic
