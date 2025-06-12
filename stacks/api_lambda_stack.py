@@ -12,7 +12,6 @@ from aws_cdk import (
     aws_scheduler as scheduler,  # Add this import for EventBridge Scheduler
     Duration,
     BundlingOptions,
-    RemovalPolicy,
     CfnOutput
 )
 from constructs import Construct
@@ -37,6 +36,11 @@ class ApiLambdaStack(Stack):
         lambda_memory_ingest_val = lambda_memory_ingest
         lambda_memory_process_val = lambda_memory_process
 
+        # --------------------------------------------
+        # ROLES
+        # --------------------------------------------
+        # Role for IngestFunction
+        # This role allows the Lambda to access RDS, Secrets Manager, and SQS
         ingest_lambda_role = iam.Role(self, "IngestLambdaRole",
             assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
             managed_policies=[
@@ -50,6 +54,7 @@ class ApiLambdaStack(Stack):
         message_queue.grant_send_messages(ingest_lambda_role)
 
         # Role for ProcessFunction
+        # This role allows the Lambda to access RDS, Secrets Manager, SQS, and EventBridge Scheduler
         process_lambda_role = iam.Role(self, "ProcessLambdaRole",
             assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
             managed_policies=[
@@ -62,6 +67,7 @@ class ApiLambdaStack(Stack):
         message_queue.grant_consume_messages(process_lambda_role)
 
         # Role for Stripe Webhook Lambda
+        # This role allows the Lambda to access RDS and Secrets Manager
         stripe_lambda_role = iam.Role(self, "StripeWebhookLambdaRole",
             assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
             managed_policies=[
@@ -73,6 +79,7 @@ class ApiLambdaStack(Stack):
         application_secrets_object.grant_read(stripe_lambda_role)
 
         # Role for Dashboard Lambda
+        # This role allows the Lambda to access RDS and Secrets Manager
         dashboard_lambda_role = iam.Role(self, "DashboardLambdaRole",
             assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
             managed_policies=[
@@ -122,6 +129,9 @@ class ApiLambdaStack(Stack):
             resources=[scheduler_role.role_arn]
         ))
 
+        # --------------------------------------------
+        # ENVIRONMENT VARIABLES
+        # --------------------------------------------
         # Environment variables for Lambda functions
         common_lambda_env = {
             "DB_HOST": db_cluster.cluster_endpoint.hostname,
@@ -133,7 +143,11 @@ class ApiLambdaStack(Stack):
             "ENVIRONMENT_NAME": environment_name,
         }
 
+        # --------------------------------------------
+        # LAMBDA FUNCTIONS
+        # --------------------------------------------
         # Ingest Function
+        # This function will receive webhooks from WATI and send messages to SQS
         ingest_function = lambda_.Function(self, "IngestFunction",
             runtime=lambda_.Runtime.PYTHON_3_11,
             handler="app.lambda_handler",
@@ -149,6 +163,7 @@ class ApiLambdaStack(Stack):
                     ]
                 )
             ),
+            tracing=lambda_.Tracing.ACTIVE,  # Enable X-Ray tracing
             vpc=vpc,
             vpc_subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS),
             security_groups=[lambda_security_group],
@@ -162,6 +177,7 @@ class ApiLambdaStack(Stack):
         )
 
         # Process Function
+        # This function will process messages from SQS and perform corresponding actions
         process_function = lambda_.Function(self, "ProcessFunction",
             runtime=lambda_.Runtime.PYTHON_3_11,
             handler="app.lambda_handler",
@@ -174,6 +190,7 @@ class ApiLambdaStack(Stack):
                     )
                 ]
             )),
+            tracing=lambda_.Tracing.ACTIVE,  # Enable X-Ray tracing
             vpc=vpc,
             vpc_subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS),
             security_groups=[lambda_security_group],
@@ -190,7 +207,16 @@ class ApiLambdaStack(Stack):
         )
         message_queue.grant_consume_messages(process_function) # Grant permission to consume messages from SQS
 
+        # Add SQS event source to ProcessFunction
+        process_function.add_event_source(
+            lambda_event_sources.SqsEventSource(message_queue,
+                batch_size=1,  # Process 1 message per Lambda invocation, suitable for chatbot
+                report_batch_item_failures=True # Important to handle errors in batch
+            )
+        )
+
         # Dashboard Function
+        # This function will query the RDS database and return active users
         dashboard_function = lambda_.Function(self, "DashboardFunction",
             runtime=lambda_.Runtime.PYTHON_3_11,
             handler="app.lambda_handler",
@@ -206,24 +232,18 @@ class ApiLambdaStack(Stack):
                     ]
                 )
             ),
-            vpc=vpc,  # Đặt Lambda vào trong VPC
-            vpc_subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS), # Chọn subnet có thể đi ra ngoài nếu cần
-            security_groups=[lambda_security_group], # Dùng SG đã cho phép truy cập RDS
-            role=dashboard_lambda_role, # Gán role vừa tạo
-            timeout=Duration.seconds(30), # Tăng timeout vì query DB có thể chậm
+            tracing=lambda_.Tracing.ACTIVE,  # Enable X-Ray tracing
+            vpc=vpc,
+            vpc_subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS),
+            security_groups=[lambda_security_group],
+            role=dashboard_lambda_role,
+            timeout=Duration.seconds(30),
             memory_size=256,
-            environment=common_lambda_env, # Truyền các biến môi trường DB vào
-        )
-
-        # Add SQS event source to ProcessFunction
-        process_function.add_event_source(
-            lambda_event_sources.SqsEventSource(message_queue,
-                batch_size=1,  # Process 1 message per Lambda invocation, suitable for chatbot
-                report_batch_item_failures=True # Important to handle errors in batch
-            )
+            environment=common_lambda_env,
         )
 
         # Stripe Webhook Function
+        # This function will handle Stripe webhooks
         stripe_webhook_function = lambda_.Function(self, "StripeWebhookFunction",
             runtime=lambda_.Runtime.PYTHON_3_11,
             handler="app.lambda_handler",
@@ -239,6 +259,7 @@ class ApiLambdaStack(Stack):
                     ]
                 )
             ),
+            tracing=lambda_.Tracing.ACTIVE,  # Enable X-Ray tracing
             vpc=vpc,
             vpc_subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS),
             security_groups=[lambda_security_group],
@@ -248,7 +269,9 @@ class ApiLambdaStack(Stack):
             environment=common_lambda_env,
         )
 
+        # ---------------------------------------------
         # API Gateway (HTTP API)
+        # ---------------------------------------------
         http_api = apigwv2.HttpApi(self, "NightingaleHttpApi",
             description=f"HTTP API for Nightingale Webhook for {environment_name}",
             cors_preflight=apigwv2.CorsPreflightOptions( # Configure CORS if needed
