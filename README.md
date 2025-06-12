@@ -57,3 +57,7 @@ psql -h <RDS_ENDPOINT> -U <RDS_USERNAME> -d <RDS_DATABASE>  # might need to inst
 ```bash
 sudo amazon-linux-extras install postgresql10
 ```
+
+## Create Stripe Product
+1. Go to Stripe Dashboard -> Products -> Create Product
+2. Go to Developers -> 
