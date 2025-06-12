@@ -60,4 +60,13 @@ sudo amazon-linux-extras install postgresql10
 
 ## Create Stripe Product
 1. Go to Stripe Dashboard -> Products -> Create Product
-2. Go to Developers -> 
+2. Go to Developers -> Webhooks -> Add endpoint
+3. Enter the webhook URL: https://<API_GATEWAY_URL>/webhook/stripe
+4. Select the events to subscribe to:
+    - `payment_intent.succeeded`
+    - `payment_intent.payment_failed`
+    - `customer.subscription.created`
+    - `customer.subscription.updated`
+    - `invoice.upcoming`
+    - `invoice.paid`
+    - `invoice.payment_failed`
