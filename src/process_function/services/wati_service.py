@@ -2,6 +2,12 @@ from config import app_conf, logger
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+from aws_xray_sdk.core import xray_recorder
+from aws_xray_sdk.core import patch_all
+import requests
+import boto3
+
+patch_all()
 
 # --- WATI API Helper ---
 def send_text_message(recipient_id: str, message_text: str) -> bool:

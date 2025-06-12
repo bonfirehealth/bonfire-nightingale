@@ -4,8 +4,12 @@ from datetime import datetime, timedelta
 import pytz
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 from openai import OpenAI, APIConnectionError, RateLimitError, APIStatusError
+from aws_xray_sdk.core import xray_recorder
+from aws_xray_sdk.core import patch_all
 
 from config import OPENAI_API_KEY, logger
+
+patch_all()
 
 def default_serializer(obj: object) -> str:
     """Default serializer for datetime objects

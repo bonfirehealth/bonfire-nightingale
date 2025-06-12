@@ -4,3 +4,4 @@ requests
 pytz
 stripe
 tenacity
+aws-xray-sdk
