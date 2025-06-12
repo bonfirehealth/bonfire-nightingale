@@ -104,7 +104,7 @@ Use **Solution-Focused Brief Therapy** approach in 5 steps:
 *Advance when user commits to an action*
 
 **Step 5 - Summary & Follow-up:**
-"You have more insight than you realized. Would you like me to check in with you in 3 days?"
+"[Summarize user's insights and actions]. You have more insight than you realized. Would you like me to check in with you in 3 days?"
 
 **Step 5 Response Handling:**
 - If user responds **YES** to follow-up:
