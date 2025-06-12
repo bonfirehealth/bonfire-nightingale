@@ -4,7 +4,7 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 # --- WATI API Helper ---
-def send_text_message(recipient_id: str, message_text: str) -> bool:
+def send_message(recipient_id: str, message_text: str) -> bool:
     """
     Send a message to a WhatsApp user using WATI API with retry on network errors.
 
