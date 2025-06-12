@@ -48,7 +48,6 @@ class ApiLambdaStack(Stack):
                 iam.ManagedPolicy.from_aws_managed_policy_name("service-role/AWSLambdaVPCAccessExecutionRole")
             ]
         )
-        db_credentials_secret.grant_read(ingest_lambda_role)
         application_secrets_object = secretsmanager.Secret.from_secret_complete_arn(self, "ImportedApplicationSecrets", application_secrets_arn)
         application_secrets_object.grant_read(ingest_lambda_role)
         message_queue.grant_send_messages(ingest_lambda_role)
