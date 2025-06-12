@@ -73,7 +73,6 @@ def construct_openai_prompt(parent_data: dict, children: list, message_history: 
         message_history=message_history,
         user_message=user_message
     )
-    logger.debug(f"Constructed OpenAI prompt: {system_prompt}")
     
     return system_prompt
 
