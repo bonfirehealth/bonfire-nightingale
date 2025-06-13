@@ -162,7 +162,6 @@ class ApiLambdaStack(Stack):
                     ]
                 )
             ),
-            tracing=lambda_.Tracing.ACTIVE,  # Enable X-Ray tracing
             vpc=vpc,
             vpc_subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS),
             security_groups=[lambda_security_group],
@@ -189,7 +188,6 @@ class ApiLambdaStack(Stack):
                     )
                 ]
             )),
-            tracing=lambda_.Tracing.ACTIVE,  # Enable X-Ray tracing
             vpc=vpc,
             vpc_subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS),
             security_groups=[lambda_security_group],
@@ -231,7 +229,6 @@ class ApiLambdaStack(Stack):
                     ]
                 )
             ),
-            tracing=lambda_.Tracing.ACTIVE,  # Enable X-Ray tracing
             vpc=vpc,
             vpc_subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS),
             security_groups=[lambda_security_group],
@@ -258,7 +255,6 @@ class ApiLambdaStack(Stack):
                     ]
                 )
             ),
-            tracing=lambda_.Tracing.ACTIVE,  # Enable X-Ray tracing
             vpc=vpc,
             vpc_subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS),
             security_groups=[lambda_security_group],
