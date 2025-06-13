@@ -477,47 +477,6 @@ def should_schedule_nudges(cursor: Psycopg2Cursor, parent_id: int) -> bool:
         ])
     )
 
-
-# =============================================================================
-# REPORTING OPERATIONS
-# =============================================================================
-
-def generate_monthly_report(cursor: Psycopg2Cursor, parent_id: int) -> Dict[str, Any]:
-    """
-    Generate monthly coaching report for parent.
-    
-    Args:
-        cursor: Database cursor
-        parent_id: Parent's ID
-        
-    Returns:
-        Report data with success/failure counts
-    """
-    # Count successful sessions
-    cursor.execute(
-        "SELECT COUNT(*) FROM coaching_sessions WHERE parent_id = %s AND follow_up_outcome = 'succeeded'",
-        (parent_id,)
-    )
-    succeeded_count = cursor.fetchone()[0]
-    
-    # Count failed sessions
-    cursor.execute(
-        "SELECT COUNT(*) FROM coaching_sessions WHERE parent_id = %s AND follow_up_outcome = 'failed'",
-        (parent_id,)
-    )
-    failed_count = cursor.fetchone()[0]
-    
-    report = {
-        "parent_id": parent_id,
-        "succeeded_count": succeeded_count,
-        "failed_count": failed_count,
-        "total_sessions": succeeded_count + failed_count
-    }
-    
-    logger.info(f"Monthly report generated for parent {parent_id}")
-    return report
-
-
 # =============================================================================
 # ESCALATION OPERATIONS
 # =============================================================================

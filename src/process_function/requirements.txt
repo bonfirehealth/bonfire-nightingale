@@ -2,6 +2,5 @@ openai
 psycopg2-binary
 requests
 pytz
-stripe
 tenacity
-aws-xray-sdk
+stripe

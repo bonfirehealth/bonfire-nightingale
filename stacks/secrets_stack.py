@@ -46,6 +46,7 @@ class SecretsStack(Stack):
             "STRIPE_WEBHOOK_SECRET": os.getenv("STRIPE_WEBHOOK_SECRET"),
             "STRIPE_WEBHOOK_SUCCESS_URL": os.getenv("STRIPE_WEBHOOK_SUCCESS_URL"),
             "STRIPE_WEBHOOK_CANCEL_URL": os.getenv("STRIPE_WEBHOOK_CANCEL_URL"),
+            "STRIPE_PRICE_ID": os.getenv("STRIPE_PRICE_ID"),
 
             # Dashboard
             "NIGHTINGALE_DASHBOARD_USERNAME": os.getenv("NIGHTINGALE_DASHBOARD_USERNAME"),

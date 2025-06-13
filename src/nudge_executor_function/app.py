@@ -1,171 +1,413 @@
+import traceback
+from contextlib import contextmanager
+from typing import Optional, Tuple, Dict, Any
+from psycopg2.extensions import connection as Connection
+
 from config import logger
-from services import database_service as db
-from services import wati_service as wati
+from message import NUDGE_MESSAGE, MONTHLY_SUMMARY_FALLBACK
+from services import database_service as db, wati_service as wati
 
-def lambda_handler(event: dict, context: dict) -> dict:
-    """
-    Main Lambda handler for executing nudge actions with transaction management and rollback.
+class NudgeProcessingError(Exception):
+    """Custom exception for nudge processing errors"""
+    pass
 
-    Args:
-        event (dict): The event object.
-        context (dict): The context object.
 
-    Returns:
-        dict: Response with status code and body.
-    """
-    whatsapp_id = event.get("waId")
-    coaching_session_id = event.get("coachingSessionId")
-    nudge_type = event.get("nudgeType")  # e.g., "day_7", "day_14", "trial_expiry"
+class DatabaseError(Exception):
+    """Custom exception for database errors"""
+    pass
 
+
+@contextmanager
+def get_db_transaction():
+    """Context manager for database transactions with automatic rollback on error"""
     db_conn = None
     try:
         db_conn = db.get_db_connection()
-        db_conn.autocommit = False  # Enable transaction management
-
-        if nudge_type == "3_day_follow_up":
-            logger.info(f"Executing 3-day follow-up for user {whatsapp_id}")
-            
-            message = "Hey! How have things been since we last spoke? Did anything shift, even slightly?"
-            
-            # Send message to parent
-            wati.send_message(whatsapp_id, message)
-            
-            if coaching_session_id:
-                with db_conn.cursor() as cursor:
-                    cursor.execute(
-                        "UPDATE coaching_sessions SET follow_up_sent_at = CURRENT_TIMESTAMP WHERE id = %s",
-                        (coaching_session_id,)
-                    )
-
-                    # Save the message to the database
-                    parent_id = db.get_parent_id_from_coaching_session_id(cursor, coaching_session_id)
-                    db.log_message(cursor, parent_id, 'ai', message)
-                    logger.info(f"Logged 3-day follow-up message for user {whatsapp_id}")
-                
-                db_conn.commit()
-            
-            logger.info(f"Sent 3-day follow-up to user {whatsapp_id}")
-        
-        elif nudge_type == "monthly_summary":
-            logger.info(f"Executing monthly summary for user {whatsapp_id}")
-
-            # Get monthly report
-            with db_conn.cursor() as cursor:
-                cursor.execute("SELECT create_monthly_report(%s);", (whatsapp_id,))
-                monthly_report = cursor.fetchone()
-                
-                if monthly_report:
-                    message = monthly_report[0]
-                    wati.send_message(whatsapp_id, message)
-                    logger.info(f"Sent monthly summary to user {whatsapp_id}")
-                else:
-                    logger.info(f"No monthly report found for user {whatsapp_id}")
-
-            # Update parent info
-            with db_conn.cursor() as cursor:
-                cursor.execute(
-                    "UPDATE parents SET monthly_summary_sent_at = CURRENT_TIMESTAMP WHERE whatsapp_id = %s",
-                    (whatsapp_id,)
-                )
-                db_conn.commit()
-                logger.info(f"Updated monthly summary sent at for user {whatsapp_id}")
-
-        elif nudge_type.startswith("nudge_day_") or nudge_type == "trial_expiry":
-            try:
-                # Start transaction
-                with db_conn.cursor() as cursor:
-                    # 1. Check if we can send the nudge
-                    cursor.execute("SELECT can_send_nudge_to_user(%s, %s);", (whatsapp_id, nudge_type))
-                    can_send = cursor.fetchone()[0]
-
-                if not can_send:
-                    logger.info(f"Skipping nudge {nudge_type} for user {whatsapp_id}. Condition not met.")
-                    db_conn.rollback()
-                    return {"statusCode": 200, "body": "Nudge condition not met"}
-
-                # 2. Get the message content
-                message = get_nudge_message(nudge_type)
-                if not message:
-                    logger.error(f"No message defined for nudge type: {nudge_type}")
-                    db_conn.rollback()
-                    return {"statusCode": 400, "body": f"No message defined for nudge type: {nudge_type}"}
-
-                # 3. Send message to parent
-                wati.send_message(whatsapp_id, message)
-
-                # 4. Update database
-                set_clause = ""
-                if nudge_type == "nudge_day_7_soft_introduction":
-                    set_clause = "sent_nudge_day_7_soft_introduction = TRUE"
-
-                elif nudge_type == "nudge_day_14_low_usage":
-                    set_clause = "sent_nudge_day_14_low_usage = TRUE"
-
-                elif nudge_type == "nudge_day_20_conversion":
-                    set_clause = "sent_nudge_day_20_conversion = TRUE"
-
-                elif nudge_type == "nudge_day_28_final_reminder":
-                    set_clause = "sent_nudge_day_28_final_reminder = TRUE"
-
-                elif nudge_type == "trial_expiry":
-                    set_clause = "subscription_status = 'trial_expired'"
-
-                else:
-                    logger.info(f"Skipping nudge {nudge_type} for user {whatsapp_id}. Condition not met.")
-                    db_conn.rollback()
-                    return {"statusCode": 200, "body": "Nudge condition not met"}
-
-                with db_conn.cursor() as cursor:
-                    cursor.execute(
-                        f"UPDATE parents SET {set_clause} WHERE whatsapp_id = %s",
-                        (whatsapp_id,)
-                    )
-                
-                # Log the message to the database
-                db.log_message(cursor, parent_id, 'ai', message)
-                logger.info(f"Logged nudge {nudge_type} for user {whatsapp_id}")
-
-                # If we get here, commit all changes
-                db_conn.commit()
-                logger.info(f"Successfully sent nudge {nudge_type} to user {whatsapp_id}.")
-
-            except Exception as e:
-                db_conn.rollback()
-                logger.error(f"Error processing nudge {nudge_type} for user {whatsapp_id}: {str(e)}")
-                raise
-
-        return {
-            "statusCode": 200,
-            "body": "Nudge executed successfully"
-        }
-
+        db_conn.autocommit = False
+        yield db_conn
+        db_conn.commit()
     except Exception as e:
-        logger.error(f"Unexpected error in lambda_handler: {str(e)}")
         if db_conn:
             db_conn.rollback()
-        return {
-            "statusCode": 500,
-            "body": f"Error processing nudge: {str(e)}"
-        }
+        logger.error(f"Database transaction failed: {str(e)}\n{traceback.format_exc()}")
+        raise DatabaseError(f"Database transaction failed: {str(e)}") from e
     finally:
         if db_conn:
             try:
                 db_conn.close()
             except Exception as e:
-                logger.error(f"Error closing database connection: {str(e)}")
+                logger.error(f"Error closing database connection: {str(e)}\n{traceback.format_exc()}")
 
-def get_nudge_message(nudge_type: str) -> str:
+
+def lambda_handler(event: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Get the message content for a given nudge type.
+    Main Lambda handler for executing nudge actions with transaction management.
 
     Args:
-        nudge_type (str): The type of nudge.
+        event: The event object containing waId, coachingSessionId, and nudgeType
+        context: The context object
+
+    Returns:
+        dict: Response with status code and body
     """
-    messages = {
-        "nudge_day_7_soft_introduction": "Hello! This is Nightingale again, your AI Parenting Coach from Bonfire Pediatrics. Just checking in — did you manage to apply anything from the parent guidebook last week? I'm here if you want to talk through anything — whether it's a tough moment with your child, questions about confusing behaviors, or just figuring out how to parent better. What has bothered you in the past week?",
-        "nudge_day_14_low_usage": "Hello! This is Nightingale again, your AI Parenting Coach from Bonfire Pediatrics. Just checking in — it's been a couple of weeks since you got our parent guidebook, and I wanted to see how things have been going. If anything's been weighing on you lately — whether it's stress at home, a tough moment with your child, or something you've been second-guessing. What has bothered you in the past week?",
-        "nudge_day_20_conversion": "You've already started making great progress. Here's a summary of your achievements: [Summary of past sessions]. Nightingale's here to keep supporting you beyond this free trial. Would you like us to continue this support for just $8/month? If yes, please reply with 'Yes'.",
-        "nudge_day_28_reminder": "Hi again! Your Nightingale free trial ends in two days. I'd love to keep supporting you if you'd like to stay on — it's just $8/month, and you can cancel anytime. If you're keen to continue, please reply with 'Yes' to receive the payment link. Do you need help with the payment process?",
-        "trial_expiry": "Hi, your trial has ended. If you'd like to continue using Nightingale, please reply with 'Yes' to receive the payment link."
+    try:
+        # Validate required parameters
+        whatsapp_id = event.get("waId")
+        nudge_type = event.get("nudgeType")
+        coaching_session_id = event.get("coachingSessionId")
+
+        if not whatsapp_id or not nudge_type:
+            raise ValueError("Missing required parameters: waId and nudgeType are required")
+
+        logger.info(f"Processing nudge {nudge_type} for user {whatsapp_id}")
+
+        with get_db_transaction() as db_conn:
+            process_nudge_by_type(db_conn, nudge_type, whatsapp_id, coaching_session_id)
+
+        logger.info(f"Successfully processed nudge {nudge_type} for user {whatsapp_id}")
+        return {
+            "statusCode": 200,
+            "body": "Nudge executed successfully"
+        }
+
+    except ValueError as e:
+        logger.error(f"Validation error: {str(e)}\n{traceback.format_exc()}")
+        return {
+            "statusCode": 400,
+            "body": f"Validation error: {str(e)}"
+        }
+    except (DatabaseError, NudgeProcessingError) as e:
+        logger.error(f"Processing error: {str(e)}\n{traceback.format_exc()}")
+        return {
+            "statusCode": 500,
+            "body": f"Error processing nudge: {str(e)}"
+        }
+    except Exception as e:
+        logger.error(f"Unexpected error in lambda_handler: {str(e)}\n{traceback.format_exc()}")
+        return {
+            "statusCode": 500,
+            "body": f"Unexpected error: {str(e)}"
+        }
+
+
+def process_nudge_by_type(db_conn: Connection, nudge_type: str, whatsapp_id: str, 
+                         coaching_session_id: Optional[int] = None) -> None:
+    """
+    Process a nudge based on its type using strategy pattern.
+    
+    Args:
+        db_conn: The database connection
+        nudge_type: The type of nudge
+        whatsapp_id: The WhatsApp ID of the user
+        coaching_session_id: The ID of the coaching session (optional)
+    """
+    nudge_processors = {
+        "3_day_follow_up": lambda: process_3_day_follow_up(db_conn, whatsapp_id, coaching_session_id),
+        "monthly_summary": lambda: process_monthly_summary(db_conn, whatsapp_id),
+        "trial_expiry": lambda: process_trial_expiry(db_conn, whatsapp_id),
     }
-    return messages.get(nudge_type, "")
+    
+    try:
+        # Handle specific nudge types
+        if nudge_type in nudge_processors:
+            nudge_processors[nudge_type]()
+        # Handle generic nudge day types
+        elif nudge_type.startswith("nudge_day_"):
+            process_generic_nudges(db_conn, whatsapp_id, nudge_type)
+        else:
+            raise NudgeProcessingError(f"Unknown nudge type: {nudge_type}")
+            
+    except Exception as e:
+        logger.error(f"Error processing nudge {nudge_type} for user {whatsapp_id}: {str(e)}\n{traceback.format_exc()}")
+        raise NudgeProcessingError(f"Failed to process nudge {nudge_type}") from e
+
+
+def process_3_day_follow_up(db_conn: Connection, whatsapp_id: str, coaching_session_id: Optional[int]) -> None:
+    """
+    Process a 3-day follow-up nudge for a user.
+    
+    Args:
+        db_conn: The database connection
+        whatsapp_id: The WhatsApp ID of the user
+        coaching_session_id: The ID of the coaching session
+    """
+    if not coaching_session_id:
+        raise ValueError("coaching_session_id is required for 3-day follow-up")
+    
+    try:
+        message = NUDGE_MESSAGE.get("3_day_follow_up")
+        if not message:
+            raise NudgeProcessingError("No message defined for 3-day follow-up")
+
+        # Update database
+        with db_conn.cursor() as cursor:
+            cursor.execute(
+                "UPDATE coaching_sessions SET follow_up_sent_at = CURRENT_TIMESTAMP WHERE id = %s",
+                (coaching_session_id,)
+            )
+            
+            if cursor.rowcount == 0:
+                raise NudgeProcessingError(f"No coaching session found with ID {coaching_session_id}")
+
+        # Send message
+        wati.send_message(whatsapp_id, message)
+
+        # Log message
+        parent_id = _get_parent_id_from_whatsapp_id(db_conn, whatsapp_id)
+        _log_message(db_conn, parent_id, "ai", message)
+        logger.info(f"3-day follow-up processed successfully for user {whatsapp_id}")
+
+    except Exception as e:
+        logger.error(f"Error processing 3-day follow-up for user {whatsapp_id}: {str(e)}\n{traceback.format_exc()}")
+        raise
+
+
+def process_monthly_summary(db_conn: Connection, whatsapp_id: str) -> None:
+    """
+    Process a monthly summary nudge for a user.
+    
+    Args:
+        db_conn: The database connection
+        whatsapp_id: The WhatsApp ID of the user
+    """
+    try:
+        # Check if we can send the monthly summary
+        if not _can_send_monthly_summary(db_conn, whatsapp_id):
+            logger.info(f"Monthly summary already sent for user {whatsapp_id}")
+            return
+
+        # Get monthly summary data
+        monthly_stats = _get_monthly_summary_data(db_conn, whatsapp_id)
+        if not monthly_stats:
+            logger.error(f"No monthly summary data found for user {whatsapp_id}")
+            return
+
+        # Update sent timestamp
+        _update_monthly_summary_sent(db_conn, whatsapp_id)
+
+        # Send message
+        message = _build_monthly_summary_message(monthly_stats)
+        wati.send_message(whatsapp_id, message)
+
+        # Log message
+        parent_id = _get_parent_id_from_whatsapp_id(db_conn, whatsapp_id)
+        _log_message(db_conn, parent_id, "ai", message)
+        
+        logger.info(f"Monthly summary processed successfully for user {whatsapp_id}")
+
+    except Exception as e:
+        logger.error(f"Error processing monthly summary for user {whatsapp_id}: {str(e)}\n{traceback.format_exc()}")
+        raise
+
+
+def process_trial_expiry(db_conn: Connection, whatsapp_id: str) -> None:
+    """
+    Process trial expiry for a user.
+    
+    Args:
+        db_conn: The database connection
+        whatsapp_id: The WhatsApp ID of the user
+    """
+    try:
+        # Check if we can send the nudge
+        if not _can_send_nudge(db_conn, whatsapp_id, "trial_expiry"):
+            logger.info(f"Trial expiry nudge already processed for user {whatsapp_id}")
+            return
+
+        # Update subscription status
+        with db_conn.cursor() as cursor:
+            cursor.execute(
+                "UPDATE parents SET subscription_status = 'trial_expired' WHERE whatsapp_id = %s AND subscription_status = 'trialing'",
+                (whatsapp_id,)
+            )
+            
+            if cursor.rowcount == 0:
+                logger.warning(f"No trialing user found for WhatsApp ID {whatsapp_id}")
+            else:
+                logger.info(f"Updated subscription status to trial_expired for user {whatsapp_id}")
+
+    except Exception as e:
+        logger.error(f"Error processing trial expiry for user {whatsapp_id}: {str(e)}\n{traceback.format_exc()}")
+        raise
+
+
+def process_generic_nudges(db_conn: Connection, whatsapp_id: str, nudge_type: str) -> None:
+    """
+    Process generic nudges for a user.
+    
+    Args:
+        db_conn: The database connection
+        whatsapp_id: The WhatsApp ID of the user
+        nudge_type: The type of nudge
+    """
+    NUDGE_TYPE_TO_COLUMN_NAME = {
+        "nudge_day_7_soft_introduction": "sent_nudge_day_7_soft_introduction",
+        "nudge_day_14_low_usage": "sent_nudge_day_14_low_usage",
+        "nudge_day_20_conversion": "sent_nudge_day_20_conversion",
+        "nudge_day_28_final_reminder": "sent_nudge_day_28_final_reminder",
+    }
+    
+    if nudge_type not in NUDGE_TYPE_TO_COLUMN_NAME:
+        raise NudgeProcessingError(f"Unsupported nudge type: {nudge_type}")
+    
+    try:
+        # Check if we can send the nudge
+        if not _can_send_nudge(db_conn, whatsapp_id, nudge_type):
+            logger.info(f"Nudge {nudge_type} already sent for user {whatsapp_id}")
+            return
+
+        # Update database
+        column_name = NUDGE_TYPE_TO_COLUMN_NAME[nudge_type]
+        with db_conn.cursor() as cursor:
+            cursor.execute(
+                f"UPDATE parents SET {column_name} = True WHERE whatsapp_id = %s",
+                (whatsapp_id,)
+            )
+            
+            if cursor.rowcount == 0:
+                raise NudgeProcessingError(f"No parent found for WhatsApp ID {whatsapp_id}")
+
+        # Get and send message
+        message = NUDGE_MESSAGE.get(nudge_type)
+        if not message:
+            raise NudgeProcessingError(f"No message defined for nudge type: {nudge_type}")
+
+        # Format message with summary if needed
+        if nudge_type in ["nudge_day_20_conversion", "nudge_day_28_final_reminder"]:
+            summary = _get_user_summary(db_conn, whatsapp_id)
+            message = message.format(
+                full_name=summary[0], 
+                successful_follow_ups=summary[1], 
+                total_sessions=summary[2]
+            )
+
+        # Send message
+        wati.send_message(whatsapp_id, message)
+
+        # Log message
+        parent_id = _get_parent_id_from_whatsapp_id(db_conn, whatsapp_id)
+        _log_message(db_conn, parent_id, "ai", message)
+        logger.info(f"Generic nudge {nudge_type} processed successfully for user {whatsapp_id}")
+
+    except Exception as e:
+        logger.error(f"Error processing generic nudge {nudge_type} for user {whatsapp_id}: {str(e)}\n{traceback.format_exc()}")
+        raise
+
+
+# Helper functions
+def _can_send_monthly_summary(db_conn: Connection, whatsapp_id: str) -> bool:
+    """Check if monthly summary can be sent to user"""
+    with db_conn.cursor() as cursor:
+        cursor.execute("SELECT can_send_monthly_summary_to_user(%s)", (whatsapp_id,))
+        result = cursor.fetchone()
+        return result[0] if result else False
+
+
+def _can_send_nudge(db_conn: Connection, whatsapp_id: str, nudge_type: str) -> bool:
+    """Check if nudge can be sent to user"""
+    with db_conn.cursor() as cursor:
+        cursor.execute("SELECT can_send_nudge_to_user(%s, %s)", (whatsapp_id, nudge_type))
+        result = cursor.fetchone()
+        return result[0] if result else False
+
+
+def _get_monthly_summary_data(db_conn: Connection, whatsapp_id: str) -> Optional[Tuple]:
+    """Get monthly summary data for user"""
+    with db_conn.cursor() as cursor:
+        cursor.execute("SELECT create_monthly_summary_for_user(%s)", (whatsapp_id,))
+        return cursor.fetchone()
+
+
+def _update_monthly_summary_sent(db_conn: Connection, whatsapp_id: str) -> None:
+    """Update monthly summary sent timestamp"""
+    with db_conn.cursor() as cursor:
+        cursor.execute(
+            "UPDATE parents SET monthly_summary_sent_at = CURRENT_TIMESTAMP WHERE whatsapp_id = %s",
+            (whatsapp_id,)
+        )
+        if cursor.rowcount == 0:
+            raise NudgeProcessingError(f"No parent found for WhatsApp ID {whatsapp_id}")
+
+
+def _build_monthly_summary_message(monthly_stats: Tuple) -> str:
+    """Build monthly summary message from stats"""
+    if not monthly_stats or monthly_stats[0] is None:
+        raise NudgeProcessingError("Invalid monthly summary data")
+    
+    base_message = NUDGE_MESSAGE.get("monthly_summary", MONTHLY_SUMMARY_FALLBACK)
+    return base_message.format(
+        full_name=monthly_stats[0],
+        successful_follow_ups=monthly_stats[1],
+        total_sessions=monthly_stats[2]
+    )
+
+
+def _get_user_summary(db_conn: Connection, whatsapp_id: str) -> Tuple:
+    """Get user summary for nudge messages"""
+    with db_conn.cursor() as cursor:
+        cursor.execute(
+            "SELECT parent_full_name, successful_follow_ups, total_sessions FROM create_monthly_summary_for_user(%s)", 
+            (whatsapp_id,)
+        )
+        result = cursor.fetchone()
+        if result is None:
+            logger.error(f"No parent found for user {whatsapp_id}")
+            raise NudgeProcessingError(f"No parent found for user {whatsapp_id}")
+        return result
+
+def _is_valid_whatsapp_id(whatsapp_id: str) -> bool:
+    """Check if the WhatsApp ID is valid"""
+    return isinstance(whatsapp_id, str) and whatsapp_id.isdigit() and len(whatsapp_id) > 0
+
+def _get_parent_id_from_whatsapp_id(db_conn: Connection, whatsapp_id: str) -> int:
+    """
+    Get parent ID from coaching session ID.
+    
+    Args:
+        db_conn: The database connection
+        whatsapp_id: WhatsApp ID of the user
+        
+    Returns:
+        Parent ID
+    """
+    if not _is_valid_whatsapp_id(whatsapp_id):
+        raise ValueError(f"Invalid WhatsApp ID: {whatsapp_id}")
+
+    if not db_conn:
+        raise ValueError("Database connection is required to get parent ID")
+
+    with db_conn.cursor() as cursor:
+        cursor.execute(
+            "SELECT id FROM parents WHERE whatsapp_id = %s",
+            (whatsapp_id,)
+        )
+        result = cursor.fetchone()
+        if result is None:
+            raise NudgeProcessingError(f"No coaching session found with ID {whatsapp_id}")
+        return result[0]
+
+def _log_message(db_conn: Connection, parent_id: int, sender: str, content: str) -> None:
+
+    """
+    Logs a message to the database.
+    
+    Args:
+        db_conn: The database connection
+        parent_id: Parent's ID
+        sender: Message sender ('user' or 'ai')
+        content: Message content
+    """
+    if not db_conn:
+        raise ValueError("Database connection is required to log messages")
+    
+    if not isinstance(parent_id, int) or parent_id <= 0:
+        raise ValueError(f"Invalid parent ID: {parent_id}")
+    
+    if sender not in ["user", "ai"]:
+        raise ValueError(f"Invalid sender type: {sender}. Must be 'user' or 'ai'.")
+
+    with db_conn.cursor() as cursor:
+        cursor.execute(
+            "INSERT INTO messages (parent_id, sender, content) VALUES (%s, %s, %s)",
+            (parent_id, sender, content)
+        )

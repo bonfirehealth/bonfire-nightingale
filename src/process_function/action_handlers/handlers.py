@@ -1,5 +1,3 @@
-import traceback
-from typing import Dict, Any
 from datetime import datetime
 
 import pytz
@@ -15,15 +13,17 @@ from services import (
 )
 
 
-def handle_continue_conversation(cursor: Psycopg2Cursor, parent_id: int, data: Dict[str, Any]) -> None:
+def handle_continue_conversation(cursor: Psycopg2Cursor, parent_id: int, ai_response: dict) -> None:
     """
     Handle basic conversation continuation and trial activation.
     
     Args:
         cursor: Database cursor
         parent_id: Parent's ID
-        data: Action data containing optional child info
+        ai_response: Response data from AI service containing action-specific data
     """
+    data = ai_response.get("data", {})
+
     # Activate trial if parent is in pre-trial status
     parent_info = db.get_parent_by_id(cursor, parent_id)
     if data.get("trial_activated", False) and parent_info["subscription_status"] == "pre_trial":
@@ -46,15 +46,17 @@ def handle_continue_conversation(cursor: Psycopg2Cursor, parent_id: int, data: D
         logger.info(f"WTW employee flag set for parent {parent_id}")
 
 
-def handle_send_to_clinics_and_process_payment(cursor: Psycopg2Cursor, parent_id: int, data: Dict[str, Any]) -> None:
+def handle_send_to_clinics_and_process_payment(cursor: Psycopg2Cursor, parent_id: int, ai_response: dict) -> None:
     """
     Handle appointment booking, clinic notification and payment processing.
     
     Args:
         cursor: Database cursor
         parent_id: Parent's ID  
-        data: Appointment and contact data
+        ai_response: Response data from AI service containing action-specific data
     """
+    data = ai_response.get("data", {})
+
     # Update parent contact details if provided
     contact_details = data.get("contact_details", {})
     if contact_details:
@@ -86,15 +88,17 @@ def handle_send_to_clinics_and_process_payment(cursor: Psycopg2Cursor, parent_id
     parent_info = db.get_parent_by_id(cursor, parent_id)
     wati.send_template_message(parent_info["whatsapp_id"], "paynow_qr", "paynow_qr")
 
-def handle_coaching_session_completed(cursor: Psycopg2Cursor, parent_id: int, data: Dict[str, Any]) -> None:
+def handle_coaching_session_completed(cursor: Psycopg2Cursor, parent_id: int, ai_response: dict) -> None:
     """
     Handle completion of a coaching session.
     
     Args:
         cursor: Database cursor
         parent_id: Parent's ID
-        data: Session completion data
+        ai_response: Response data from AI service containing action-specific data
     """
+    data = ai_response.get("data", {})
+
     # Get or create coaching session
     session = db.get_active_coaching_session(cursor, parent_id)
     if not session:
@@ -118,15 +122,17 @@ def handle_coaching_session_completed(cursor: Psycopg2Cursor, parent_id: int, da
     logger.info(f"Coaching session completed for parent {parent_id}")
 
 
-def handle_schedule_follow_up(cursor: Psycopg2Cursor, parent_id: int, data: Dict[str, Any]) -> None:
+def handle_schedule_follow_up(cursor: Psycopg2Cursor, parent_id: int, ai_response: dict) -> None:
     """
     Handle follow-up scheduling.
     
     Args:
         cursor: Database cursor
         parent_id: Parent's ID
-        data: Follow-up scheduling data
+        ai_response: Response data from AI service containing action-specific data
     """
+    data = ai_response.get("data", {})
+
     # Get or create coaching session
     session = db.get_active_coaching_session(cursor, parent_id)
     if not session:
@@ -167,14 +173,14 @@ def handle_schedule_follow_up(cursor: Psycopg2Cursor, parent_id: int, data: Dict
         logger.info(f"Follow-up not scheduled for parent {parent_id}")
 
 
-def handle_schedule_monthly_summary(cursor: Psycopg2Cursor, parent_id: int, data: Dict[str, Any]) -> None:
+def handle_schedule_monthly_summary(cursor: Psycopg2Cursor, parent_id: int, ai_response: dict) -> None:
     """
     Handle monthly summary subscription.
     
     Args:
         cursor: Database cursor
         parent_id: Parent's ID
-        data: Not used currently
+        ai_response: Response data from AI service containing action-specific data (Not used here)
     """
     # Update parent preference
     db.update_parent_preferences(cursor, parent_id, {"monthly_summary_opted_in": True})
@@ -183,7 +189,7 @@ def handle_schedule_monthly_summary(cursor: Psycopg2Cursor, parent_id: int, data
     parent_info = db.get_parent_by_id(cursor, parent_id)
     scheduler.schedule_single_event(
         parent_info["whatsapp_id"], 
-        "", 
+        None, 
         "monthly_summary", 
         30
     )
@@ -191,15 +197,17 @@ def handle_schedule_monthly_summary(cursor: Psycopg2Cursor, parent_id: int, data
     logger.info(f"Monthly summary scheduled for parent {parent_id}")
 
 
-def handle_update_coaching_session_result(cursor: Psycopg2Cursor, parent_id: int, data: Dict[str, Any]) -> None:
+def handle_update_coaching_session_result(cursor: Psycopg2Cursor, parent_id: int, ai_response: dict) -> None:
     """
     Handle follow-up coaching session result update.
     
     Args:
         cursor: Database cursor
         parent_id: Parent's ID
-        data: Follow-up outcome data
+        ai_response: Response data from AI service containing action-specific data
     """
+    data = ai_response.get("data", {})
+
     # Find the most recent completed session
     session = db.get_latest_coaching_session(cursor, parent_id, "completed")
     if not session:
@@ -213,15 +221,17 @@ def handle_update_coaching_session_result(cursor: Psycopg2Cursor, parent_id: int
     logger.info(f"Coaching session follow-up updated to '{outcome}' for parent {parent_id}")
 
 
-def handle_trigger_escalation(cursor: Psycopg2Cursor, parent_id: int, data: Dict[str, Any]) -> None:
+def handle_trigger_escalation(cursor: Psycopg2Cursor, parent_id: int, ai_response: dict) -> None:
     """
     Handle crisis escalation to human support.
     
     Args:
         cursor: Database cursor
         parent_id: Parent's ID
-        data: Escalation context data
+        ai_response: Response data from AI service containing action-specific data
     """
+    data = ai_response.get("data", {})
+
     parent_info = db.get_parent_by_id(cursor, parent_id)
     
     # Send escalation email
@@ -235,27 +245,31 @@ def handle_trigger_escalation(cursor: Psycopg2Cursor, parent_id: int, data: Dict
     
     logger.info(f"Escalation triggered for parent {parent_id}")
 
+DEFAULT_MESSAGE_FOR_CHECKOUT_ACTION = "Please complete your subscription payment to continue using our services."
 
-def handle_process_subscription_payment(cursor: Psycopg2Cursor, parent_id: int, data: Dict[str, Any]) -> None:
+def handle_checkout_subscription(cursor: Psycopg2Cursor, parent_id: int, ai_response: dict) -> None:
     """
-    Handle subscription payment processing.
+    Handle subscription checkout and payment processing.
     
     Args:
         cursor: Database cursor
         parent_id: Parent's ID
-        data: May contain suppress_message flag
+        ai_response: Response data from AI service containing action-specific data
     """
+    ai_response = ai_response.get("data", {})
+
+    # Create Stripe Checkout session
+    session = stripe_service.create_checkout_session(parent_id)
+
+    # Send message to parent with Stripe Checkout URL
+    reply_from_ai = ai_response.get("reply_to_user", DEFAULT_MESSAGE_FOR_CHECKOUT_ACTION)
     parent_info = db.get_parent_by_id(cursor, parent_id)
-    
-    # Create Stripe checkout session
-    session = stripe_service.create_checkout_session(parent_info["whatsapp_id"])
-    
-    # Send subscription link unless suppressed
-    if not data.get("suppress_message", False):
-        message = f"Here is the link to subscribe to our plan: {session['url']}"
-        wati.send_text_message(parent_info["whatsapp_id"], message)
-    
-    logger.info(f"Subscription link provided to parent {parent_id}")
+    final_reply_to_user = f"{reply_from_ai}\n\nPlease complete your subscription payment here: {session.url}"
+    wati.send_text_message(parent_info["whatsapp_id"], final_reply_to_user)
+
+    # Log the message in the database
+    db.log_message(cursor, parent_id, 'ai', final_reply_to_user)
+    logger.info(f"Sent subscription checkout message to parent {parent_id}")
 
 
 # Action handler mapping
@@ -267,35 +281,5 @@ ACTION_HANDLERS = {
     "schedule_follow_up": handle_schedule_follow_up,
     "schedule_monthly_summary": handle_schedule_monthly_summary,
     "trigger_escalation": handle_trigger_escalation,
-    "process_subscription_payment": handle_process_subscription_payment,
+    "checkout_subscription": handle_checkout_subscription,
 }
-
-
-def execute_action(action: str, cursor: Psycopg2Cursor, parent_id: int, data: Dict[str, Any]) -> None:
-    """
-    Execute the specified action with proper error handling.
-    
-    Args:
-        action: Action type to execute
-        cursor: Database cursor
-        parent_id: Parent's ID
-        data: Action-specific data
-        
-    Raises:
-        Exception: Re-raises any exceptions for transaction rollback
-    """
-    try:
-        handler = ACTION_HANDLERS.get(action)
-        if not handler:
-            logger.error(f"Unknown action type: '{action}' for parent_id: {parent_id}")
-            return
-            
-        handler(cursor, parent_id, data)
-        
-    except Exception as e:
-        error_traceback = traceback.format_exc()
-        logger.error(
-            f"Error executing action '{action}' for parent {parent_id}: {e}\n"
-            f"Traceback:\n{error_traceback}"
-        )
-        raise

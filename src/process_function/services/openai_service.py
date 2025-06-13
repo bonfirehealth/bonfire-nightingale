@@ -5,12 +5,8 @@ from datetime import datetime, timedelta
 import pytz
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 from openai import OpenAI, APIConnectionError, RateLimitError, APIStatusError
-from aws_xray_sdk.core import xray_recorder
-from aws_xray_sdk.core import patch_all
 
 from config import OPENAI_API_KEY, logger
-
-patch_all()
 
 SYSTEM_PROMPT_TEMPLATE = Path(__file__).parent / "system_prompt_template.txt"
 
@@ -54,7 +50,7 @@ def construct_openai_prompt(parent_data: dict, children: list, message_history: 
     
     # Calculate trial remaining days
     trial_remaining_days = 30
-    if parent_data["subscription_status"] == "trialing":
+    if parent_data["subscription_status"] == "trialing" and parent_data.get("trial_start_date"):
         trial_remaining_days = (datetime.now(pytz.utc) - parent_data["trial_start_date"]).days
     
     # Format the prompt using actual data

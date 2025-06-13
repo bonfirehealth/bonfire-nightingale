@@ -68,7 +68,7 @@ def create_trial_schedules(whatsapp_id: str, coaching_session_id: int) -> None:
             # Add logic to retry or send a notification to the dev team
             raise e
 
-def schedule_single_event(whatsapp_id: str, coaching_session_id: int, event_type: str, days_from_now: int):
+def schedule_single_event(whatsapp_id: str, coaching_session_id: int | None, event_type: str, days_from_now: int):
     """Schedule a single event on EventBridge Scheduler.
 
     Args:

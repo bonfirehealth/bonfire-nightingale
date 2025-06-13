@@ -19,7 +19,12 @@ def lambda_handler(event: dict, context: dict) -> dict:
         # 1. Parse incoming request from Wati
         # Wati webhook format might vary. This is a common structure.
         logger.info(f"Received event: {event}")
-        record = event.get("Records")[0]
+        record = event.get("Records", [None])[0]
+        if not record or "body" not in record:
+            logger.error("No valid SQS record found in the event.")
+            return {"statusCode": 400, "body": "Invalid event format"}
+
+        # Parse the body of the SQS message
         body = json.loads(record.get("body", "{}"))
         logger.info(f"Received SQS message: {body}")
         
@@ -59,7 +64,7 @@ def lambda_handler(event: dict, context: dict) -> dict:
             
             # 8. Process the action returned by the AI
             logger.debug(f"Processing AI action for parent {parent_id}. AI response: {ai_response}")
-            process_ai_actions(cursor, parent_id, ai_response)
+            process_ai_action(cursor, parent_id, ai_response)
 
             # 9. Log the AI's reply
             logger.debug(f"Logging AI reply for parent {parent_id}")
@@ -101,7 +106,7 @@ def lambda_handler(event: dict, context: dict) -> dict:
 
         return {"statusCode": 500, "body": "Internal Server Error"}
 
-def process_ai_actions(cursor: Psycopg2Cursor, parent_id: int, ai_response: Dict[str, Any]) -> None:
+def process_ai_action(cursor: Psycopg2Cursor, parent_id: int, ai_response: Dict[str, Any]) -> None:
     """
     Parses the AI's action and payload, then executes the corresponding database 
     and service operations. This acts as a dispatcher.
@@ -111,9 +116,8 @@ def process_ai_actions(cursor: Psycopg2Cursor, parent_id: int, ai_response: Dict
         parent_id (int): The ID of the parent.
         ai_response (Dict[str, Any]): The AI response.
     """
-    action = ai_response.get("action")
-    data = ai_response.get("data", {})
-    execute_action(action, cursor, parent_id, data)
+    action = ai_response.get("action", "not_provided")
+    execute_action(action, cursor, parent_id, ai_response)
     
     # Update mode
     if "next_mode" in ai_response:

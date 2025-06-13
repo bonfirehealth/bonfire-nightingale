@@ -58,6 +58,7 @@ CREATE TABLE parents (
     stripe_customer_id VARCHAR(255) UNIQUE,
 
     -- Nudge management
+    follow_up_sent_at TIMESTAMPTZ,
     sent_nudge_day_7_soft_introduction BOOLEAN NOT NULL DEFAULT FALSE,
     sent_nudge_day_14_low_usage BOOLEAN NOT NULL DEFAULT FALSE,
     sent_nudge_day_20_conversion BOOLEAN NOT NULL DEFAULT FALSE,
@@ -206,42 +207,51 @@ BEGIN
 
     -- Check nudge type and conditions
     CASE p_nudge_type
-        WHEN 'day_7_soft_introduction' THEN
+        WHEN 'nudge_day_7_soft_introduction' THEN
             -- Day 7: Soft Re-Introduction
             IF v_parent.trial_days >= 7 
                AND NOT v_parent.sent_nudge_day_7_soft_introduction 
-               AND v_session_count <= 1 THEN
-                v_should_send := TRUE;
-            END IF;
-            
-        WHEN 'day_14_low_usage' THEN
-            -- Day 14: Low Usage
-            IF v_parent.trial_days >= 14 
-               AND NOT v_parent.sent_nudge_day_14_low_usage 
-               AND v_session_count <= 1 THEN
-                v_should_send := TRUE;
-            END IF;
-            
-        WHEN 'day_20_conversion' THEN
-            -- Day 20: Conversion Prompt
-            IF v_parent.trial_days >= 20 
-               AND NOT v_parent.sent_nudge_day_20_conversion 
-               AND v_session_count >= 2 
+               AND v_session_count <= 1
                AND v_parent.subscription_status = 'trialing' THEN
                 v_should_send := TRUE;
             END IF;
             
-        WHEN 'day_28_final_reminder' THEN
+        WHEN 'nudge_day_14_low_usage' THEN
+            -- Day 14: Low Usage
+            IF v_parent.trial_days >= 14 
+               AND NOT v_parent.sent_nudge_day_14_low_usage 
+               AND v_session_count <= 1
+               AND v_parent.subscription_status = 'trialing' THEN
+                v_should_send := TRUE;
+            END IF;
+            
+        WHEN 'nudge_day_20_conversion' THEN
+            -- Day 20: Conversion Prompt
+            IF v_parent.trial_days >= 20
+               AND v_session_count >= 2
+               AND v_parent.subscription_status = 'trialing' THEN
+                v_should_send := TRUE;
+            END IF;
+            
+        WHEN 'nudge_day_28_final_reminder' THEN
             -- Day 28: Final Reminder
             IF v_parent.trial_days >= 28 
                AND NOT v_parent.sent_nudge_day_28_final_reminder 
                AND v_parent.subscription_status = 'trialing' THEN
                 v_should_send := TRUE;
             END IF;
+        
+        WHEN 'trial_expiry' THEN
+            -- Trial Expiry
+            IF v_parent.trial_days >= 30 
+               AND NOT v_parent.sent_trial_expiry 
+               AND v_parent.subscription_status = 'trialing' THEN
+                v_should_send := TRUE;
+            END IF;
             
         ELSE
             -- Unknown nudge type
-            v_should_send := TRUE;
+            v_should_send := FALSE;
     END CASE;
     
     RETURN v_should_send;
@@ -252,14 +262,11 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 -- MONTHLY REPORT FUNCTION
 -- =================================================================
 
-CREATE OR REPLACE FUNCTION create_monthly_report(
+CREATE OR REPLACE FUNCTION can_send_monthly_summary_to_user(
     p_whatsapp_id VARCHAR(255)
-) RETURNS TEXT AS $$
+) RETURNS BOOLEAN AS $$
 DECLARE
     v_parent_id BIGINT;
-    v_successful_follow_ups INTEGER;
-    v_total_sessions INTEGER;
-    v_report_text TEXT;
 BEGIN
     -- Get parent ID
     SELECT id INTO v_parent_id 
@@ -267,43 +274,66 @@ BEGIN
     WHERE whatsapp_id = p_whatsapp_id;
     
     IF v_parent_id IS NULL THEN
-        RETURN NULL;
+        RETURN FALSE;
     END IF;
     
-    -- Count successful follow-ups in the last 30 days
-    SELECT COUNT(*) INTO v_successful_follow_ups
-    FROM coaching_sessions
-    WHERE parent_id = v_parent_id
-      AND follow_up_outcome = 'succeeded'
-      AND session_end_time >= (NOW() - INTERVAL '30 days');
+    -- Check if user is trial user/active paid user and user opted in monthly summary
+    IF EXISTS (
+        SELECT 1
+        FROM parents
+        WHERE id = v_parent_id
+          AND (subscription_status = 'trialing' OR subscription_status = 'active_paid')
+          AND monthly_summary_opted_in = TRUE
+    ) THEN
+        RETURN TRUE;
+    END IF;
     
-    -- Count total completed sessions in the last 30 days
-    SELECT COUNT(*) INTO v_total_sessions
-    FROM coaching_sessions
-    WHERE parent_id = v_parent_id
-      AND status = 'completed'
-      AND session_end_time >= (NOW() - INTERVAL '30 days');
-    
-    -- Generate report text
-    v_report_text := CONCAT(
-        '📊 *Your Monthly Coaching Report* 📊\n\n',
-        'Here is a summary of your coaching journey this month:\n\n',
-        '✅ *Successful Follow-ups*: ', v_successful_follow_ups, '\n',
-        '💬 *Total Coaching Sessions*: ', v_total_sessions, '\n\n',
-        'Keep up the great work! If you have any questions or need support, feel free to reach out.'
-    );
-    
-    -- Update the last report timestamp
-    UPDATE parents 
-    SET monthly_summary_sent_at = NOW()
-    WHERE id = v_parent_id;
-    
-    RETURN v_report_text;
+    RETURN FALSE;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+
+CREATE OR REPLACE FUNCTION create_monthly_summary_for_user(
+    p_whatsapp_id VARCHAR(255)
+) RETURNS TABLE (
+    parent_full_name VARCHAR(255),
+    successful_follow_ups INTEGER,
+    total_sessions INTEGER
+) AS $$
+BEGIN
+    RETURN QUERY
+    WITH parent_info AS (
+        SELECT id, full_name 
+        FROM parents 
+        WHERE whatsapp_id = p_whatsapp_id
+    ),
+    follow_ups AS (
+        SELECT COUNT(*) as count
+        FROM coaching_sessions
+        WHERE parent_id = (SELECT id FROM parent_info)
+          AND follow_up_outcome = 'succeeded'
+          AND session_end_time >= (NOW() - INTERVAL '30 days')
+    ),
+    sessions AS (
+        SELECT COUNT(*) as count
+        FROM coaching_sessions
+        WHERE parent_id = (SELECT id FROM parent_info)
+          AND status = 'completed'
+          AND session_end_time >= (NOW() - INTERVAL '30 days')
+    )
+    SELECT 
+        p.full_name::VARCHAR(255),
+        COALESCE(f.count, 0)::INTEGER,
+        COALESCE(s.count, 0)::INTEGER
+    FROM 
+        parent_info p
+        CROSS JOIN LATERAL (SELECT count FROM follow_ups) f
+        CROSS JOIN LATERAL (SELECT count FROM sessions) s;
 EXCEPTION
     WHEN OTHERS THEN
-        -- Log the error and return NULL
+        -- Log the error and return NULLs
         RAISE NOTICE 'Error generating monthly report: %', SQLERRM;
-        RETURN NULL;
+        RETURN QUERY SELECT NULL::VARCHAR(255), NULL::INTEGER, NULL::INTEGER;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
