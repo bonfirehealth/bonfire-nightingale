@@ -6,6 +6,85 @@ from psycopg2.extras import RealDictCursor
 from services import wati_service as wati, database_service as db
 from config import STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, logger
 
+def lambda_handler(event, context):
+    """Main Lambda handler for Stripe webhooks"""
+    try:
+        # Get application secrets (including Stripe keys)
+        stripe.api_key = STRIPE_SECRET_KEY
+        endpoint_secret = STRIPE_WEBHOOK_SECRET
+        
+        # Get the raw body and signature
+        body = event.get('body', '')
+        signature = event.get('headers', {}).get('stripe-signature', '')
+        
+        if not signature:
+            logger.error("Missing Stripe signature")
+            return {
+                'statusCode': 400,
+                'body': json.dumps({'error': 'Missing signature'})
+            }
+        
+        # Verify the webhook signature
+        if not verify_stripe_signature(body, signature, endpoint_secret):
+            return {
+                'statusCode': 400,
+                'body': json.dumps({'error': 'Invalid signature'})
+            }
+        
+        # Parse the event
+        try:
+            stripe_event = json.loads(body)
+        except json.JSONDecodeError:
+            logger.error("Invalid JSON payload")
+            return {
+                'statusCode': 400,
+                'body': json.dumps({'error': 'Invalid JSON'})
+            }
+        
+        # Handle the event
+        event_type = stripe_event['type']
+        event_data = stripe_event['data']
+        
+        logger.info(f"Received Stripe event: {event_type}")
+        
+        if event_type == 'checkout.session.completed':
+            handle_payment_success(event_data)
+        elif event_type == 'payment_intent.payment_failed':
+            handle_payment_failed(event_data)
+        elif event_type == 'customer.subscription.created':
+            handle_subscription_created(event_data)
+        elif event_type == 'customer.subscription.updated':
+            handle_subscription_created(event_data)  # Reuse the same handler
+        elif event_type == 'customer.subscription.deleted':
+            # Handle subscription cancellation
+            subscription = event_data['object']
+            conn = db.get_db_connection()
+            try:
+                with conn.cursor() as cursor:
+                    cursor.execute("""
+                        UPDATE subscriptions 
+                        SET status = 'canceled', updated_at = NOW()
+                        WHERE stripe_subscription_id = %s
+                    """, (subscription['id'],))
+                    conn.commit()
+            finally:
+                conn.close()
+        else:
+            logger.info(f"Unhandled event type: {event_type}")
+        
+        return {
+            'statusCode': 200,
+            'body': json.dumps({'received': True})
+        }
+        
+    except Exception as e:
+        logger.error(f"Error processing webhook: {e}")
+        return {
+            'statusCode': 500,
+            'body': json.dumps({'error': 'Internal server error'})
+        }
+
+
 def verify_stripe_signature(payload, signature, endpoint_secret):
     """Verify Stripe webhook signature"""
     try:
@@ -20,7 +99,9 @@ def verify_stripe_signature(payload, signature, endpoint_secret):
 
 def handle_payment_success(event_data):
     """Handle successful payment event"""
-    logger.info(f"Processing payment success: {event_data['id']}")
+    logger.info(f"Processing payment success: {event_data['object']['id']}")
+
+    # Get the original parent ID from the event data
     
     # Extract payment information
     payment_intent = event_data['object']
@@ -50,7 +131,6 @@ def handle_payment_success(event_data):
             cursor.execute("""
                 INSERT INTO payments (
                     stripe_payment_intent_id,
-                    stripe_customer_id,
                     customer_email,
                     customer_name,
                     amount,
@@ -66,7 +146,6 @@ def handle_payment_success(event_data):
                     updated_at = NOW()
             """, (
                 payment_intent['id'],
-                customer_id,
                 customer_email,
                 customer_name,
                 amount,
@@ -75,14 +154,16 @@ def handle_payment_success(event_data):
                 payment_method,
                 'succeeded'
             ))
+
+            # Update subscription status if applicable
+            cursor.execute("UPDATE parents SET status = 'active' WHERE  = %s", (payment_intent['id'],))
             conn.commit()
             logger.info(f"Payment {payment_intent['id']} recorded successfully")
         
         # Send WATI message to user
         if customer_email:
             # TODO:
-            # wati.send_text_message(customer_email, "Thank you for your payment!")
-            pass
+            wati.send_text_message(customer_email, "Thank you for your payment! Your subscription is now active.")
             
     except Exception as e:
         logger.error(f"Database error: {e}")
@@ -117,8 +198,7 @@ def handle_payment_failed(event_data):
         # Send WATI message to user
         if customer_email:
             # TODO:
-            # wati.send_text_message(customer_email, "Payment failed. Please try again.")
-            pass
+            wati.send_text_message(customer_email, "Payment failed. Please try again.")
             
     except Exception as e:
         logger.error(f"Database error: {e}")
@@ -172,81 +252,3 @@ def handle_subscription_created(event_data):
     finally:
         if conn:
             conn.close()
-
-def lambda_handler(event, context):
-    """Main Lambda handler for Stripe webhooks"""
-    try:
-        # Get application secrets (including Stripe keys)
-        stripe.api_key = STRIPE_SECRET_KEY
-        endpoint_secret = STRIPE_WEBHOOK_SECRET
-        
-        # Get the raw body and signature
-        body = event.get('body', '')
-        signature = event.get('headers', {}).get('stripe-signature', '')
-        
-        if not signature:
-            logger.error("Missing Stripe signature")
-            return {
-                'statusCode': 400,
-                'body': json.dumps({'error': 'Missing signature'})
-            }
-        
-        # Verify the webhook signature
-        if not verify_stripe_signature(body, signature, endpoint_secret):
-            return {
-                'statusCode': 400,
-                'body': json.dumps({'error': 'Invalid signature'})
-            }
-        
-        # Parse the event
-        try:
-            stripe_event = json.loads(body)
-        except json.JSONDecodeError:
-            logger.error("Invalid JSON payload")
-            return {
-                'statusCode': 400,
-                'body': json.dumps({'error': 'Invalid JSON'})
-            }
-        
-        # Handle the event
-        event_type = stripe_event['type']
-        event_data = stripe_event['data']
-        
-        logger.info(f"Received Stripe event: {event_type}")
-        
-        if event_type == 'payment_intent.succeeded':
-            handle_payment_success(event_data)
-        elif event_type == 'payment_intent.payment_failed':
-            handle_payment_failed(event_data)
-        elif event_type == 'customer.subscription.created':
-            handle_subscription_created(event_data)
-        elif event_type == 'customer.subscription.updated':
-            handle_subscription_created(event_data)  # Reuse the same handler
-        elif event_type == 'customer.subscription.deleted':
-            # Handle subscription cancellation
-            subscription = event_data['object']
-            conn = db.get_db_connection()
-            try:
-                with conn.cursor() as cursor:
-                    cursor.execute("""
-                        UPDATE subscriptions 
-                        SET status = 'canceled', updated_at = NOW()
-                        WHERE stripe_subscription_id = %s
-                    """, (subscription['id'],))
-                    conn.commit()
-            finally:
-                conn.close()
-        else:
-            logger.info(f"Unhandled event type: {event_type}")
-        
-        return {
-            'statusCode': 200,
-            'body': json.dumps({'received': True})
-        }
-        
-    except Exception as e:
-        logger.error(f"Error processing webhook: {e}")
-        return {
-            'statusCode': 500,
-            'body': json.dumps({'error': 'Internal server error'})
-        }
