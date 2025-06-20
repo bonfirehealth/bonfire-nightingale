@@ -25,6 +25,16 @@ class SecretsStack(Stack):
             "WATI_API_ENDPOINT": os.getenv("WATI_API_ENDPOINT"),
             "WATI_ACCESS_TOKEN": os.getenv("WATI_ACCESS_TOKEN"),
 
+            # Twilio
+            "TWILIO_PHONE_NUMBER": os.getenv("TWILIO_PHONE_NUMBER"),
+            "TWILIO_ACCOUNT_SID": os.getenv("TWILIO_ACCOUNT_SID"),
+            "TWILIO_AUTH_TOKEN": os.getenv("TWILIO_AUTH_TOKEN"),
+
+            # Elevenlabs
+            "ELEVENLABS_API_KEY": os.getenv("ELEVENLABS_API_KEY"),
+            "ELEVENLABS_AGENT_ID": os.getenv("ELEVENLABS_AGENT_ID"),
+            "ELEVENLABS_WEBHOOK_SECRET": os.getenv("ELEVENLABS_WEBHOOK_SECRET"),
+
             # Google
             "GOOGLE_EMAIL_ADDRESS": os.getenv("GOOGLE_EMAIL_ADDRESS"),
             "GOOGLE_APP_PASSWORD": os.getenv("GOOGLE_APP_PASSWORD"),

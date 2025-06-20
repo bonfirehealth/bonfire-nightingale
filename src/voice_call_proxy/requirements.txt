@@ -1,0 +1,7 @@
+uvicorn
+fastapi
+websockets==13.1
+aiohttp
+twilio
+boto3
+psycopg2-binary

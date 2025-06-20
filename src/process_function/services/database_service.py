@@ -477,6 +477,33 @@ def should_schedule_nudges(cursor: Psycopg2Cursor, parent_id: int) -> bool:
         ])
     )
 
+
+# =============================================================================
+# VOICE CALL OPERATIONS
+# =============================================================================
+def create_voice_call(cursor: Psycopg2Cursor, parent_id: int) -> Dict[str, Any]:
+    """
+    Create new voice call.
+    
+    Args:
+        cursor: Database cursor
+        parent_id: Parent's ID
+        
+    Returns:
+        Created voice call data
+    """
+    cursor.execute(
+        """
+        INSERT INTO voice_calls (parent_id, status)
+        VALUES (%s, 'pending')
+        RETURNING *
+        """,
+        (parent_id,)
+    )
+    new_voice_call = cursor.fetchone()
+    logger.info(f"New voice call created for parent {parent_id}")
+    return _row_to_dict(cursor, new_voice_call)
+
 # =============================================================================
 # ESCALATION OPERATIONS
 # =============================================================================

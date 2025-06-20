@@ -1,3 +1,4 @@
+import os
 from datetime import datetime
 
 import pytz
@@ -220,6 +221,36 @@ def handle_update_coaching_session_result(cursor: Psycopg2Cursor, parent_id: int
     
     logger.info(f"Coaching session follow-up updated to '{outcome}' for parent {parent_id}")
 
+DEFAULT_DELAY_MINUTES = 2
+
+def handle_offer_voice_call(cursor: Psycopg2Cursor, parent_id: int, ai_response: dict) -> None:
+    """
+    Handle voice call offer.
+    
+    Args:
+        cursor: Database cursor
+        parent_id: Parent's ID
+        ai_response: Response data from AI service containing action-specific data
+    """
+    
+    parent_info = db.get_parent_by_id(cursor, parent_id)
+    if not parent_info:
+        logger.error(f"Parent {parent_id} not found")
+        return
+
+    # Create a new voice call
+    voice_call = db.create_voice_call(cursor, parent_id)
+    if not voice_call:
+        logger.error(f"Failed to create voice call for parent {parent_id}")
+        return
+
+    scheduler.schedule_voice_call(
+        parent_id,
+        parent_info["whatsapp_id"],
+        voice_call["id"],
+        delay_minutes=DEFAULT_DELAY_MINUTES
+    )
+    logger.info(f"Scheduled a voice call for parent {parent_id}")
 
 def handle_trigger_escalation(cursor: Psycopg2Cursor, parent_id: int, ai_response: dict) -> None:
     """
@@ -280,6 +311,7 @@ ACTION_HANDLERS = {
     "update_coaching_session_result": handle_update_coaching_session_result,
     "schedule_follow_up": handle_schedule_follow_up,
     "schedule_monthly_summary": handle_schedule_monthly_summary,
+    "offer_voice_call": handle_offer_voice_call,
     "trigger_escalation": handle_trigger_escalation,
     "checkout_subscription": handle_checkout_subscription,
 }

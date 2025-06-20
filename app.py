@@ -7,6 +7,7 @@ from stacks.database_stack import DatabaseStack
 from stacks.messaging_stack import MessagingStack
 from stacks.api_lambda_stack import ApiLambdaStack
 from stacks.nudge_executor_stack import NudgeExecutorStack
+from stacks.voice_proxy_stack import VoiceProxyStack
 from stacks.ec2_stack import BastionEc2Stack
 
 app = cdk.App()
@@ -86,6 +87,16 @@ nudge_executor_stack.add_dependency(vpc_stack)
 nudge_executor_stack.add_dependency(db_stack)
 nudge_executor_stack.add_dependency(secrets_stack)
 
+# Stack for Voice Proxy
+voice_proxy_stack = VoiceProxyStack(app, f"NightingaleVoiceProxyStack-{environment_name}",
+    vpc=vpc_stack.vpc,
+    db_credentials_secret=db_stack.db_credentials_secret,
+    application_secrets_arn=secrets_stack.application_secrets.secret_arn,
+    **stack_props
+)
+voice_proxy_stack.add_dependency(vpc_stack)
+voice_proxy_stack.add_dependency(db_stack)
+voice_proxy_stack.add_dependency(secrets_stack)
 
 # Stack for API Gateway and Lambda functions
 api_lambda_stack = ApiLambdaStack(app, f"NightingaleApiLambdaStack-{environment_name}",
@@ -99,6 +110,7 @@ api_lambda_stack = ApiLambdaStack(app, f"NightingaleApiLambdaStack-{environment_
     lambda_memory_ingest=lambda_memory_ingest,
     lambda_memory_process=lambda_memory_process,
     nudge_executor_function_arn=nudge_executor_stack.nudge_executor_function.function_arn,
+    voice_proxy_stack=voice_proxy_stack,
     **stack_props
 )
 api_lambda_stack.add_dependency(vpc_stack)
@@ -106,5 +118,6 @@ api_lambda_stack.add_dependency(db_stack)
 api_lambda_stack.add_dependency(messaging_stack)
 api_lambda_stack.add_dependency(secrets_stack)
 api_lambda_stack.add_dependency(nudge_executor_stack)
+api_lambda_stack.add_dependency(voice_proxy_stack)
 
 app.synth()
