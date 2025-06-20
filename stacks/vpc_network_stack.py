@@ -67,6 +67,28 @@ class VpcNetworkStack(Stack):
             description="Allow SSH from my IP"
         )
 
+        # Security Group cho Voice Proxy
+        self.voice_proxy_security_group = ec2.SecurityGroup(self, "VoiceProxySecurityGroup",
+            vpc=self.vpc,
+            description="Security group for Voice Proxy EC2 instance",
+            allow_all_outbound=True
+        )
+
+        # Cho phép SSH vào Voice Proxy từ VPC
+        self.voice_proxy_security_group.add_ingress_rule(
+            peer=ec2.Peer.ipv4("10.0.0.0/16"),
+            connection=ec2.Port.tcp(22),
+            description="Allow SSH from VPC"
+        )
+
+        # Allow SSH from your specific IP (replace with your actual IP)
+        your_ip = "1.55.14.60/32"
+        self.voice_proxy_security_group.add_ingress_rule(
+            peer=ec2.Peer.ipv4(your_ip),
+            connection=ec2.Port.tcp(22),
+            description="Allow SSH from my IP"
+        )
+
         # Security Group cho RDS
         self.rds_security_group = ec2.SecurityGroup(self, "RdsSecurityGroup",
             vpc=self.vpc,
@@ -85,6 +107,13 @@ class VpcNetworkStack(Stack):
             peer=self.bastion_security_group,
             connection=ec2.Port.tcp(5432),
             description="Allow Bastion EC2 to connect to RDS"
+        )
+
+        # Allow Voice Proxy to connect to RDS
+        self.rds_security_group.add_ingress_rule(
+            peer=self.voice_proxy_security_group,
+            connection=ec2.Port.tcp(5432),
+            description="Allow Voice Proxy EC2 to connect to RDS"
         )
 
         # (Optional) VPC Endpoints to enhance security and cost savings

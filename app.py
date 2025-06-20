@@ -7,12 +7,14 @@ from stacks.database_stack import DatabaseStack
 from stacks.messaging_stack import MessagingStack
 from stacks.api_lambda_stack import ApiLambdaStack
 from stacks.nudge_executor_stack import NudgeExecutorStack
-from stacks.voice_proxy_stack import VoiceProxyStack
 from stacks.ec2_stack import BastionEc2Stack
+from stacks.voice_proxy_stack import VoiceProxyEc2Stack
 
 app = cdk.App()
 
-# Get values from context (e.g., from cdk.json or command line -c)
+# -------------------------------------
+# ENVIRONMENT CONFIGURATION
+# -------------------------------------
 environment_name = app.node.try_get_context("environment_name")
 if not environment_name:
     raise ValueError("Context variable 'environment_name' (e.g., 'dev', 'prod') is required.")
@@ -35,13 +37,18 @@ stack_props = {
 }
 
 
+# -------------------------------------
+# STACKS
+# -------------------------------------
 # Stack for VPC and Networking
 vpc_stack = VpcNetworkStack(app, f"NightingaleVpcStack-{environment_name}",
     **stack_props,
     nat_gateways_count=nat_gateways_count
 )
 
-# Stack for Bastion EC2 (sử dụng Security Group từ VPC Stack)
+# -------------------------------------
+# Stack for Bastion EC2
+# -------------------------------------
 bastion_stack = BastionEc2Stack(app, f"NightingaleBastionStack-{environment_name}",
     vpc=vpc_stack.vpc,
     bastion_security_group=vpc_stack.bastion_security_group,  # Truyền Bastion SG từ VPC Stack
@@ -50,12 +57,27 @@ bastion_stack = BastionEc2Stack(app, f"NightingaleBastionStack-{environment_name
 )
 bastion_stack.add_dependency(vpc_stack)
 
+# -------------------------------------
+# Stack for Voice Proxy EC2
+# -------------------------------------
+voice_proxy_stack = VoiceProxyEc2Stack(app, f"NightingaleVoiceProxyStack-{environment_name}",
+    vpc=vpc_stack.vpc,
+    voice_proxy_security_group=vpc_stack.voice_proxy_security_group,  # Truyền Voice Proxy SG từ VPC Stack
+    rds_security_group=vpc_stack.rds_security_group,
+    **stack_props
+)
+voice_proxy_stack.add_dependency(vpc_stack)
+
+# -------------------------------------
 # Stack for Secrets Manager
+# -------------------------------------
 secrets_stack = SecretsStack(app, f"NightingaleSecretsStack-{environment_name}",
     **stack_props
 )
 
+# -------------------------------------
 # Stack for RDS Database
+# -------------------------------------
 db_stack = DatabaseStack(app, f"NightingaleDatabaseStack-{environment_name}",
     vpc=vpc_stack.vpc,
     rds_security_group=vpc_stack.rds_security_group,
@@ -67,12 +89,16 @@ db_stack = DatabaseStack(app, f"NightingaleDatabaseStack-{environment_name}",
 db_stack.add_dependency(vpc_stack)
 db_stack.add_dependency(secrets_stack) # RDS credentials will be stored in Secrets Manager
 
+# -------------------------------------
 # Stack for SQS Messaging
+# -------------------------------------
 messaging_stack = MessagingStack(app, f"NightingaleMessagingStack-{environment_name}",
     **stack_props
 )
 
+# -------------------------------------
 # Stack for Nudge Executor Function
+# -------------------------------------
 nudge_executor_stack = NudgeExecutorStack(app, f"NightingaleNudgeExecutorStack-{environment_name}",
     vpc=vpc_stack.vpc,
     lambda_security_group=vpc_stack.lambda_security_group,
@@ -87,18 +113,9 @@ nudge_executor_stack.add_dependency(vpc_stack)
 nudge_executor_stack.add_dependency(db_stack)
 nudge_executor_stack.add_dependency(secrets_stack)
 
-# Stack for Voice Proxy
-voice_proxy_stack = VoiceProxyStack(app, f"NightingaleVoiceProxyStack-{environment_name}",
-    vpc=vpc_stack.vpc,
-    db_credentials_secret=db_stack.db_credentials_secret,
-    application_secrets_arn=secrets_stack.application_secrets.secret_arn,
-    **stack_props
-)
-voice_proxy_stack.add_dependency(vpc_stack)
-voice_proxy_stack.add_dependency(db_stack)
-voice_proxy_stack.add_dependency(secrets_stack)
-
+# -------------------------------------
 # Stack for API Gateway and Lambda functions
+# -------------------------------------
 api_lambda_stack = ApiLambdaStack(app, f"NightingaleApiLambdaStack-{environment_name}",
     vpc=vpc_stack.vpc,
     lambda_security_group=vpc_stack.lambda_security_group,
@@ -110,7 +127,6 @@ api_lambda_stack = ApiLambdaStack(app, f"NightingaleApiLambdaStack-{environment_
     lambda_memory_ingest=lambda_memory_ingest,
     lambda_memory_process=lambda_memory_process,
     nudge_executor_function_arn=nudge_executor_stack.nudge_executor_function.function_arn,
-    voice_proxy_stack=voice_proxy_stack,
     **stack_props
 )
 api_lambda_stack.add_dependency(vpc_stack)
@@ -118,6 +134,5 @@ api_lambda_stack.add_dependency(db_stack)
 api_lambda_stack.add_dependency(messaging_stack)
 api_lambda_stack.add_dependency(secrets_stack)
 api_lambda_stack.add_dependency(nudge_executor_stack)
-api_lambda_stack.add_dependency(voice_proxy_stack)
 
 app.synth()

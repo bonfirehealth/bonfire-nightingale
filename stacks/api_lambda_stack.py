@@ -15,7 +15,6 @@ from aws_cdk import (
     CfnOutput
 )
 from constructs import Construct
-from stacks.voice_proxy_stack import VoiceProxyStack
 
 class ApiLambdaStack(Stack):
     def __init__(self, scope: Construct, construct_id: str,
@@ -31,7 +30,6 @@ class ApiLambdaStack(Stack):
                  lambda_memory_ingest: int,
                  lambda_memory_process: int,
                  nudge_executor_function_arn: str,
-                 voice_proxy_stack: VoiceProxyStack,
                  **kwargs) -> None:
         super().__init__(scope, construct_id, **kwargs)
 
@@ -117,7 +115,6 @@ class ApiLambdaStack(Stack):
             ],
             resources=[
                 f"arn:aws:scheduler:{self.region}:{self.account}:schedule/{schedule_group.name}/*",
-                f"arn:aws:scheduler:{self.region}:{self.account}:schedule/{voice_proxy_stack.voice_call_schedule_group.name}/*"
             ]
         ))
         
@@ -128,15 +125,7 @@ class ApiLambdaStack(Stack):
             actions=["iam:PassRole"],
             resources=[
                 scheduler_role.role_arn,
-                voice_proxy_stack.scheduler_to_fargate_role.role_arn
             ]
-        ))
-
-        # Grant permission to read Parameter Store
-        param_path = f"/nightingale/{environment_name}/voice-proxy"
-        process_lambda_role.add_to_policy(iam.PolicyStatement(
-            actions=["ssm:GetParametersByPath", "ssm:GetParameter"],
-            resources=["*"]
         ))
 
         # --------------------------------------------
@@ -208,9 +197,6 @@ class ApiLambdaStack(Stack):
                 "NUDGE_EXECUTOR_LAMBDA_ARN": nudge_executor_function_arn,
                 "EVENTBRIDGE_SCHEDULER_ROLE_ARN": scheduler_role.role_arn,
                 "SCHEDULE_GROUP_NAME": schedule_group.name,
-                "VOICE_SCHEDULER_ROLE_ARN": voice_proxy_stack.scheduler_to_fargate_role.role_arn,
-                "VOICE_SCHEDULE_GROUP_NAME": voice_proxy_stack.voice_call_schedule_group.name,
-                "VOICE_PROXY_CONFIG_PATH": param_path,
             },
             role=process_lambda_role,
             timeout=Duration.minutes(5 if is_prod else 3), # OpenAI may take time
