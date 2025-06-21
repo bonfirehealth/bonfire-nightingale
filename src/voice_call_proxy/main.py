@@ -2,109 +2,19 @@ import json
 import asyncio
 import websockets
 import sys
-from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, WebSocket
-from twilio.rest import Client
 
 from utils import (
-    get_fargate_public_ip, get_signed_url, get_agent_system_prompt
+    get_signed_url, get_agent_system_prompt
 )
-from config import (
-    logger,
-    TWILIO_PHONE_NUMBER, TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN,
-    TARGET_PHONE, VOICE_CALL_ID,
-)
+from config import logger
 from database_service import get_db_connection, log_message
 
 
 MAX_CALL_DURATION_SECONDS = 30 * 60
 
-client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
-
-async def startup_event():
-    try:
-        logger.info("=== STARTUP EVENT STARTED ===")
-        logger.info("Fargate task started. Initiating call...")
-        asyncio.create_task(shutdown_timer(MAX_CALL_DURATION_SECONDS))
-
-        logger.info("Creating task for call initiation...")
-        asyncio.create_task(initiate_call_on_startup())
-        logger.info("=== STARTUP EVENT COMPLETED ===")
-    except Exception as e:
-        logger.error(f"Error in startup event: {e}")
-        import traceback
-        traceback.print_exc()
-        raise
-
-# --- Timer task ---
-async def shutdown_timer(duration: int):
-    """Countdown and exit application after a certain duration."""
-    logger.info(f"Application self-destruct timer started for {duration} seconds.")
-    await asyncio.sleep(duration)
-    logger.info(f"Maximum call duration of {duration} seconds reached. Shutting down task.")
-    # Use sys.exit() to exit the process cleanly.
-    # Uvicorn and Fargate will recognize that the process has ended.
-    sys.exit(0)
-
-async def initiate_call_on_startup():
-    logger.info("Initiating call...")
-    
-    # 1. Read state from environment variables
-    if not TARGET_PHONE or not VOICE_CALL_ID:
-        logger.error("TARGET_PHONE or VOICE_CALL_ID environment variables not set. Exiting.")
-        # Exit application to stop Fargate task
-        # os._exit(1) 
-        return # Better to return to avoid crash loop
-
-    # 2. Discover public IP
-    public_ip = get_fargate_public_ip()
-    if not public_ip:
-        logger.error("Failed to get public IP. Cannot make the call. Exiting.")
-        sys.exit(1)
-
-    # 3. Build WebSocket URL and TwiML
-    websocket_url = f"wss://{public_ip}/media-stream/{TARGET_PHONE}/{VOICE_CALL_ID}"
-    target_phone_with_plus = TARGET_PHONE if TARGET_PHONE.startswith("+") else "+" + TARGET_PHONE
-    outbound_twiml = (
-        f'<?xml version="1.0" encoding="UTF-8"?>'
-        f'<Response>'
-        f'  <Connect>'
-        f'    <Stream url="{websocket_url}" />'
-        f'  </Connect>'
-        f'</Response>'
-    )
-    logger.info(f"Outbound TwiML: {outbound_twiml}")
-    logger.info(f"Constructed WebSocket URL: {websocket_url}")
-    
-    # 4. Call Twilio
-    try:
-        target_phone_with_plus = TARGET_PHONE if TARGET_PHONE.startswith("+") else "+" + TARGET_PHONE
-        call = client.calls.create(
-            record=False,
-            from_=TWILIO_PHONE_NUMBER,
-            to=target_phone_with_plus,
-            twiml=outbound_twiml,
-        )
-        logger.info(f"Call SID: {call.sid}")
-        logger.info(f"Successfully initiated call to {target_phone_with_plus}")
-    except Exception as e:
-        logger.error(f"Failed to create Twilio call: {e}")
-        # os._exit(1)
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """Start timer task when application starts."""
-    logger.info("Starting application...")
-    try:
-        await startup_event()
-        yield
-    except Exception as e:
-        logger.error(f"Application error: {e}")
-    finally:
-        logger.info("Shutting down application...")
-
-app = FastAPI(lifespan=lifespan)
+app = FastAPI()
 
 @app.websocket("/media-stream/{target_phone}/{voice_call_id}")
 async def outbound_media_stream(websocket: WebSocket, target_phone: str, voice_call_id: int):

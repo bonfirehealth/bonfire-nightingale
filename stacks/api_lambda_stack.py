@@ -30,6 +30,7 @@ class ApiLambdaStack(Stack):
                  lambda_memory_ingest: int,
                  lambda_memory_process: int,
                  nudge_executor_function_arn: str,
+                 voice_proxy_function_arn: str,
                  **kwargs) -> None:
         super().__init__(scope, construct_id, **kwargs)
 
@@ -101,9 +102,25 @@ class ApiLambdaStack(Stack):
             resources=[nudge_executor_function_arn]
         ))
 
+        # Create IAM Role for EventBridge Scheduler to invoke Voice Proxy Lambda
+        voice_scheduler_role = iam.Role(self, "VoiceSchedulerRole",
+            assumed_by=iam.ServicePrincipal("scheduler.amazonaws.com"),
+            description="IAM Role for EventBridge Scheduler to invoke Voice Proxy Lambda"
+        )
+        # Grant permission to invoke Voice Proxy Lambda
+        voice_scheduler_role.add_to_policy(iam.PolicyStatement(
+            effect=iam.Effect.ALLOW,
+            actions=["lambda:InvokeFunction"],
+            resources=[voice_proxy_function_arn]
+        ))
+
         # 2. Create a Schedule Group to manage all schedules for trial
         schedule_group = scheduler.CfnScheduleGroup(self, "NightingaleTrialScheduleGroup",
             name=f"nightingale-trial-schedules-{environment_name}"
+        )
+
+        voice_schedule_group = scheduler.CfnScheduleGroup(self, "NightingaleVoiceScheduleGroup",
+            name=f"nightingale-voice-schedules-{environment_name}"
         )
 
         # 3. Grant ProcessFunction permission to create/delete schedules in the group created above
@@ -115,6 +132,7 @@ class ApiLambdaStack(Stack):
             ],
             resources=[
                 f"arn:aws:scheduler:{self.region}:{self.account}:schedule/{schedule_group.name}/*",
+                f"arn:aws:scheduler:{self.region}:{self.account}:schedule/{voice_schedule_group.name}/*",
             ]
         ))
         
@@ -197,6 +215,9 @@ class ApiLambdaStack(Stack):
                 "NUDGE_EXECUTOR_LAMBDA_ARN": nudge_executor_function_arn,
                 "EVENTBRIDGE_SCHEDULER_ROLE_ARN": scheduler_role.role_arn,
                 "SCHEDULE_GROUP_NAME": schedule_group.name,
+                "VOICE_PROXY_LAMBDA_ARN": voice_proxy_function_arn,
+                "EVENTBRIDGE_VOICE_SCHEDULER_ROLE_ARN": voice_scheduler_role.role_arn,
+                "VOICE_SCHEDULE_GROUP_NAME": voice_schedule_group.name,
             },
             role=process_lambda_role,
             timeout=Duration.minutes(5 if is_prod else 3), # OpenAI may take time

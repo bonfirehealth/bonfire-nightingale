@@ -58,17 +58,6 @@ bastion_stack = BastionEc2Stack(app, f"NightingaleBastionStack-{environment_name
 bastion_stack.add_dependency(vpc_stack)
 
 # -------------------------------------
-# Stack for Voice Proxy EC2
-# -------------------------------------
-voice_proxy_stack = VoiceProxyEc2Stack(app, f"NightingaleVoiceProxyStack-{environment_name}",
-    vpc=vpc_stack.vpc,
-    voice_proxy_security_group=vpc_stack.voice_proxy_security_group,  # Truyền Voice Proxy SG từ VPC Stack
-    rds_security_group=vpc_stack.rds_security_group,
-    **stack_props
-)
-voice_proxy_stack.add_dependency(vpc_stack)
-
-# -------------------------------------
 # Stack for Secrets Manager
 # -------------------------------------
 secrets_stack = SecretsStack(app, f"NightingaleSecretsStack-{environment_name}",
@@ -88,6 +77,20 @@ db_stack = DatabaseStack(app, f"NightingaleDatabaseStack-{environment_name}",
 )
 db_stack.add_dependency(vpc_stack)
 db_stack.add_dependency(secrets_stack) # RDS credentials will be stored in Secrets Manager
+
+# -------------------------------------
+# Stack for Voice Proxy EC2
+# -------------------------------------
+voice_proxy_stack = VoiceProxyEc2Stack(app, f"NightingaleVoiceProxyStack-{environment_name}",
+    vpc=vpc_stack.vpc,
+    voice_ec2_proxy_security_group=vpc_stack.voice_ec2_proxy_security_group,
+    lambda_security_group=vpc_stack.lambda_security_group,
+    application_secrets_arn=secrets_stack.application_secrets.secret_arn,
+    **stack_props,
+)
+voice_proxy_stack.add_dependency(vpc_stack)
+voice_proxy_stack.add_dependency(secrets_stack)
+
 
 # -------------------------------------
 # Stack for SQS Messaging
@@ -127,6 +130,7 @@ api_lambda_stack = ApiLambdaStack(app, f"NightingaleApiLambdaStack-{environment_
     lambda_memory_ingest=lambda_memory_ingest,
     lambda_memory_process=lambda_memory_process,
     nudge_executor_function_arn=nudge_executor_stack.nudge_executor_function.function_arn,
+    voice_proxy_function_arn=voice_proxy_stack.voice_proxy_executor_function.function_arn,
     **stack_props
 )
 api_lambda_stack.add_dependency(vpc_stack)

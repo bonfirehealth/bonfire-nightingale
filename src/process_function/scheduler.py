@@ -7,8 +7,9 @@ import boto3
 
 from config import (
     logger, NUDGE_EXECUTOR_LAMBDA_ARN, EVENTBRIDGE_SCHEDULER_ROLE_ARN, SCHEDULE_GROUP_NAME,
+    VOICE_EXECUTOR_LAMBDA_ARN, EVENTBRIDGE_VOICE_SCHEDULER_ROLE_ARN, VOICE_SCHEDULE_GROUP_NAME,
     TWILIO_PHONE_NUMBER, TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN,
-    ELEVENLABS_API_KEY, ELEVENLABS_AGENT_ID, ELEVENLABS_WEBHOOK_SECRET,
+    ELEVENLABS_API_KEY, ELEVENLABS_AGENT_ID, VOICE_CALL_DOMAIN
 )
 
 scheduler_client = boto3.client('scheduler')
@@ -129,41 +130,21 @@ def schedule_voice_call(parent_id: int, target_phone: str, voice_call_id: int, d
         delay_minutes (int): The number of minutes to delay the call.
     """
     # Get config from SSM
-    dynamic_config = get_voice_proxy_config_from_ssm()
-    VOICE_SCHEDULER_ROLE_ARN = os.getenv("VOICE_SCHEDULER_ROLE_ARN")
-    VOICE_SCHEDULE_GROUP_NAME = os.getenv("VOICE_SCHEDULE_GROUP_NAME")
-    VOICE_CLUSTER_ARN = dynamic_config['cluster-arn']
-    VOICE_TASK_DEFINITION_ARN = dynamic_config['task-def-arn']
-    VOICE_SUBNET_ID = dynamic_config['subnet-id']
-
-    logger.debug(f"VOICE_CLUSTER_ARN: {VOICE_CLUSTER_ARN}")
-    logger.debug(f"VOICE_TASK_DEFINITION_ARN: {VOICE_TASK_DEFINITION_ARN}")
-    logger.debug(f"VOICE_SCHEDULER_ROLE_ARN: {VOICE_SCHEDULER_ROLE_ARN}")
+    logger.debug(f"VOICE_SCHEDULER_ROLE_ARN: {EVENTBRIDGE_VOICE_SCHEDULER_ROLE_ARN}")
     logger.debug(f"VOICE_SCHEDULE_GROUP_NAME: {VOICE_SCHEDULE_GROUP_NAME}")
-    logger.debug(f"VOICE_SUBNET_ID: {VOICE_SUBNET_ID}")
     logger.debug(f"TWILIO_PHONE_NUMBER: {TWILIO_PHONE_NUMBER}")
     logger.debug(f"TWILIO_ACCOUNT_SID: {TWILIO_ACCOUNT_SID}")
     logger.debug(f"TWILIO_AUTH_TOKEN: {TWILIO_AUTH_TOKEN}")
+    logger.debug(f"ELEVENLABS_API_KEY: {ELEVENLABS_API_KEY}")
+    logger.debug(f"ELEVENLABS_AGENT_ID: {ELEVENLABS_AGENT_ID}")
 
-    if not VOICE_CLUSTER_ARN:
-        logger.error("VOICE_CLUSTER_ARN is not set!")
-        raise ValueError("VOICE_CLUSTER_ARN is not set!")
-
-    if not VOICE_TASK_DEFINITION_ARN:
-        logger.error("VOICE_TASK_DEFINITION_ARN is not set!")
-        raise ValueError("VOICE_TASK_DEFINITION_ARN is not set!")
-    
-    if not VOICE_SCHEDULER_ROLE_ARN:
+    if not EVENTBRIDGE_VOICE_SCHEDULER_ROLE_ARN:
         logger.error("VOICE_SCHEDULER_ROLE_ARN is not set!")
         raise ValueError("VOICE_SCHEDULER_ROLE_ARN is not set!")
     
     if not VOICE_SCHEDULE_GROUP_NAME:
         logger.error("VOICE_SCHEDULE_GROUP_NAME is not set!")
         raise ValueError("VOICE_SCHEDULE_GROUP_NAME is not set!")
-    
-    if not VOICE_SUBNET_ID:
-        logger.error("VOICE_SUBNET_ID is not set!")
-        raise ValueError("VOICE_SUBNET_ID is not set!")
     
     if not TWILIO_PHONE_NUMBER:
         logger.error("TWILIO_PHONE_NUMBER is not set!")
@@ -184,46 +165,28 @@ def schedule_voice_call(parent_id: int, target_phone: str, voice_call_id: int, d
     # Create a unique name for the schedule to avoid conflicts and manage it easily
     schedule_name = f"voice-call-{parent_id}-{datetime.now().strftime('%Y%m%d%H%M%S')}"
     
-    # Payload will be sent to Lambda Executor
-    fargate_input = {
-        "containerOverrides": [{
-            "name": "VoiceProxyContainer",
-            "environment": [
-                {"name": "TARGET_PHONE", "value": target_phone},
-                {"name": "TWILIO_PHONE_NUMBER", "value": TWILIO_PHONE_NUMBER},
-                {"name": "TWILIO_ACCOUNT_SID", "value": TWILIO_ACCOUNT_SID},
-                {"name": "TWILIO_AUTH_TOKEN", "value": TWILIO_AUTH_TOKEN},
-                {"name": "ELEVENLABS_API_KEY", "value": ELEVENLABS_API_KEY},
-                {"name": "ELEVENLABS_AGENT_ID", "value": ELEVENLABS_AGENT_ID},
-                {"name": "ELEVENLABS_WEBHOOK_SECRET", "value": ELEVENLABS_WEBHOOK_SECRET},
-                {"name": "VOICE_CALL_ID", "value": str(voice_call_id)},
-            ]
-        }]
-    }
-    logger.debug(f"Fargate input: {fargate_input}")
-    
     logger.info(f"Offering voice call to parent {parent_id}")
-
     try:
+        payload = json.dumps({
+            "parent_id": parent_id,
+            "target_phone": target_phone,
+            "voice_call_id": voice_call_id,
+            "domain": VOICE_CALL_DOMAIN,
+            "twilio_phone_number": TWILIO_PHONE_NUMBER,
+            "twilio_account_sid": TWILIO_ACCOUNT_SID,
+            "twilio_auth_token": TWILIO_AUTH_TOKEN,
+            "elevenlabs_api_key": ELEVENLABS_API_KEY,
+            "elevenlabs_agent_id": ELEVENLABS_AGENT_ID,
+        })
         scheduler_client.create_schedule(
             Name=schedule_name,
             GroupName=VOICE_SCHEDULE_GROUP_NAME,
             ScheduleExpression=schedule_expression,
             ScheduleExpressionTimezone="UTC",
             Target={
-                "Arn": VOICE_CLUSTER_ARN, # Target is ECS Cluster
-                "RoleArn": VOICE_SCHEDULER_ROLE_ARN,
-                "Input": json.dumps(fargate_input),
-                "EcsParameters": {
-                    "TaskDefinitionArn": VOICE_TASK_DEFINITION_ARN,
-                    "LaunchType": "FARGATE",
-                    "NetworkConfiguration": {
-                        "awsvpcConfiguration": {
-                            "Subnets": [VOICE_SUBNET_ID],
-                            "AssignPublicIp": "ENABLED"
-                        }
-                    }
-                }
+                'Arn': VOICE_EXECUTOR_LAMBDA_ARN,
+                'RoleArn': EVENTBRIDGE_VOICE_SCHEDULER_ROLE_ARN,
+                'Input': payload,
             },
             FlexibleTimeWindow={"Mode": "OFF"},
             ActionAfterCompletion="DELETE" # Auto delete schedule after running
@@ -233,24 +196,3 @@ def schedule_voice_call(parent_id: int, target_phone: str, voice_call_id: int, d
     except Exception as e:
         logger.error(f"Failed to create schedule {schedule_name}. Error: {e}")
         raise e
-
-_cached_voice_config = None
-
-def get_voice_proxy_config_from_ssm():
-    """Chỉ lấy các config động từ SSM."""
-    global _cached_voice_config
-    if _cached_voice_config:
-        return _cached_voice_config
-    
-    VOICE_PROXY_CONFIG_PATH = os.getenv("VOICE_PROXY_CONFIG_PATH")
-    if not VOICE_PROXY_CONFIG_PATH:
-        raise ValueError("VOICE_PROXY_CONFIG_PATH is not set!")
-
-    response = ssm_client.get_parameters_by_path(
-        Path=VOICE_PROXY_CONFIG_PATH,
-        Recursive=False,
-        WithDecryption=True
-    )
-    params = {p['Name'].split('/')[-1]: p['Value'] for p in response['Parameters']}
-    _cached_voice_config = params
-    return _cached_voice_config

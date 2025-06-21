@@ -29,6 +29,7 @@ class SecretsStack(Stack):
             "TWILIO_PHONE_NUMBER": os.getenv("TWILIO_PHONE_NUMBER"),
             "TWILIO_ACCOUNT_SID": os.getenv("TWILIO_ACCOUNT_SID"),
             "TWILIO_AUTH_TOKEN": os.getenv("TWILIO_AUTH_TOKEN"),
+            "VOICE_CALL_DOMAIN": os.getenv("VOICE_CALL_DOMAIN"),
 
             # Elevenlabs
             "ELEVENLABS_API_KEY": os.getenv("ELEVENLABS_API_KEY"),
