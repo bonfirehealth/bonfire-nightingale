@@ -30,7 +30,7 @@ class ApiLambdaStack(Stack):
                  lambda_memory_ingest: int,
                  lambda_memory_process: int,
                  nudge_executor_function_arn: str,
-                 voice_proxy_function_arn: str,
+                 voice_proxy_executor_function_arn: str,
                  **kwargs) -> None:
         super().__init__(scope, construct_id, **kwargs)
 
@@ -111,7 +111,7 @@ class ApiLambdaStack(Stack):
         voice_scheduler_role.add_to_policy(iam.PolicyStatement(
             effect=iam.Effect.ALLOW,
             actions=["lambda:InvokeFunction"],
-            resources=[voice_proxy_function_arn]
+            resources=[voice_proxy_executor_function_arn]
         ))
 
         # 2. Create a Schedule Group to manage all schedules for trial
@@ -143,6 +143,7 @@ class ApiLambdaStack(Stack):
             actions=["iam:PassRole"],
             resources=[
                 scheduler_role.role_arn,
+                voice_scheduler_role.role_arn
             ]
         ))
 
@@ -215,7 +216,7 @@ class ApiLambdaStack(Stack):
                 "NUDGE_EXECUTOR_LAMBDA_ARN": nudge_executor_function_arn,
                 "EVENTBRIDGE_SCHEDULER_ROLE_ARN": scheduler_role.role_arn,
                 "SCHEDULE_GROUP_NAME": schedule_group.name,
-                "VOICE_PROXY_LAMBDA_ARN": voice_proxy_function_arn,
+                "VOICE_PROXY_EXECUTOR_LAMBDA_ARN": voice_proxy_executor_function_arn,
                 "EVENTBRIDGE_VOICE_SCHEDULER_ROLE_ARN": voice_scheduler_role.role_arn,
                 "VOICE_SCHEDULE_GROUP_NAME": voice_schedule_group.name,
             },

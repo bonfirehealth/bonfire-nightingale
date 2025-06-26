@@ -1,18 +1,21 @@
+import os
 import json
 import asyncio
 import websockets
 import sys
 
 from fastapi import FastAPI, WebSocket
+from dotenv import load_dotenv
 
 from utils import (
-    get_signed_url, get_agent_system_prompt
+    get_signed_url
 )
-from config import logger
-from database_service import get_db_connection, log_message
+from config import logger, SYSTEM_PROMPT
+from database_service import log_message
 
+load_dotenv()
 
-MAX_CALL_DURATION_SECONDS = 30 * 60
+MAX_CALL_DURATION_SECONDS = int(os.environ.get("MAX_CALL_DURATION_SECONDS", 1800))
 
 app = FastAPI()
 
@@ -26,8 +29,8 @@ async def outbound_media_stream(websocket: WebSocket, target_phone: str, voice_c
     context = ""
 
     # Override the conversation config
-    system_prompt = await get_agent_system_prompt()
-    override_prompt = f"{system_prompt}\n\nContext:\n{context}"
+    # system_prompt = await get_agent_system_prompt()
+    override_prompt = f"{SYSTEM_PROMPT}\n\nContext:\n{context}"
     conversation_config_override = {
         "agent": {
             "prompt": {
@@ -45,7 +48,7 @@ async def outbound_media_stream(websocket: WebSocket, target_phone: str, voice_c
     
     try:
         # Connect to DB
-        db_conn = get_db_connection()
+        # db_conn = get_db_connection()
 
         # Set up ElevenLabs connection
         signed_url = await get_signed_url()
@@ -87,8 +90,8 @@ async def outbound_media_stream(websocket: WebSocket, target_phone: str, voice_c
                         elif msg["event"] == "stop":
                             logger.info(f"[Twilio] Stream {stream_sid} ended")
                             conversation_ended = True
-                            handle_postcall(target_phone)
-                            sys.exit(0)
+                            # handle_postcall(target_phone)
+                            break
                         
                 except Exception as e:
                     logger.error(f"[Twilio] Error processing message: {e}")
@@ -147,23 +150,23 @@ async def outbound_media_stream(websocket: WebSocket, target_phone: str, voice_c
                             if "agent_response_event" in message and "agent_response" in message["agent_response_event"]:
                                 content = message["agent_response_event"]["agent_response"]
                                 logger.info(f"[Twilio] Agent response: {content}")
-                                await save_message_to_db(
-                                    db_conn,
-                                    target_phone,
-                                    "ai",
-                                    content,
-                                )
+                                # await save_message_to_db(
+                                #     db_conn,
+                                #     target_phone,
+                                #     "ai",
+                                #     content,
+                                # )
                                 
                         elif message_type == "user_transcript":
                             if "user_transcription_event" in message and "user_transcript" in message["user_transcription_event"]:
                                 content = message["user_transcription_event"]["user_transcript"]
                                 logger.info(f"[Twilio] User transcript: {content}")
-                                await save_message_to_db(
-                                    db_conn,
-                                    target_phone,
-                                    "user",
-                                    content,
-                                )
+                                # await save_message_to_db(
+                                #     db_conn,
+                                #     target_phone,
+                                #     "user",
+                                #     content,
+                                # )
                             
                     except Exception as e:
                         logger.error(f"[ElevenLabs] Error processing message: {e}")

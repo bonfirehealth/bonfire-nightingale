@@ -1,4 +1,3 @@
-import os
 import json
 import uuid
 from datetime import datetime, timezone, timedelta
@@ -7,7 +6,7 @@ import boto3
 
 from config import (
     logger, NUDGE_EXECUTOR_LAMBDA_ARN, EVENTBRIDGE_SCHEDULER_ROLE_ARN, SCHEDULE_GROUP_NAME,
-    VOICE_EXECUTOR_LAMBDA_ARN, EVENTBRIDGE_VOICE_SCHEDULER_ROLE_ARN, VOICE_SCHEDULE_GROUP_NAME,
+    VOICE_PROXY_EXECUTOR_LAMBDA_ARN, EVENTBRIDGE_VOICE_SCHEDULER_ROLE_ARN, VOICE_SCHEDULE_GROUP_NAME,
     TWILIO_PHONE_NUMBER, TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN,
     ELEVENLABS_API_KEY, ELEVENLABS_AGENT_ID, VOICE_CALL_DOMAIN
 )
@@ -130,6 +129,7 @@ def schedule_voice_call(parent_id: int, target_phone: str, voice_call_id: int, d
         delay_minutes (int): The number of minutes to delay the call.
     """
     # Get config from SSM
+    logger.debug(f"VOICE_PROXY_EXECUTOR_LAMBDA_ARN: {VOICE_PROXY_EXECUTOR_LAMBDA_ARN}")
     logger.debug(f"VOICE_SCHEDULER_ROLE_ARN: {EVENTBRIDGE_VOICE_SCHEDULER_ROLE_ARN}")
     logger.debug(f"VOICE_SCHEDULE_GROUP_NAME: {VOICE_SCHEDULE_GROUP_NAME}")
     logger.debug(f"TWILIO_PHONE_NUMBER: {TWILIO_PHONE_NUMBER}")
@@ -184,7 +184,7 @@ def schedule_voice_call(parent_id: int, target_phone: str, voice_call_id: int, d
             ScheduleExpression=schedule_expression,
             ScheduleExpressionTimezone="UTC",
             Target={
-                'Arn': VOICE_EXECUTOR_LAMBDA_ARN,
+                'Arn': VOICE_PROXY_EXECUTOR_LAMBDA_ARN,
                 'RoleArn': EVENTBRIDGE_VOICE_SCHEDULER_ROLE_ARN,
                 'Input': payload,
             },

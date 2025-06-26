@@ -15,7 +15,7 @@ def lambda_handler(event: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, 
         twilio_auth_token = event.get("twilio_auth_token")
         domain = event.get("domain")
         target_phone = event.get("target_phone")
-        conversation_id = event.get("conversation_id")
+        voice_call_id = event.get("voice_call_id")
 
         if not twilio_account_sid:
             raise ValueError("Missing required parameters: twilio_account_sid")
@@ -29,27 +29,27 @@ def lambda_handler(event: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, 
         if not target_phone:
             raise ValueError("Missing required parameters: target_phone")
 
-        if not conversation_id:
-            raise ValueError("Missing required parameters: conversation_id")
+        if not voice_call_id:
+            raise ValueError("Missing required parameters: voice_call_id")
 
         client = Client(twilio_account_sid, twilio_auth_token)
 
-        target_phone_without_plus = target_phone.strip("+")
+        target_phone_with_plus = "+" + target_phone if not target_phone.startswith("+") else target_phone
         outbound_twiml = (
             f"<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
             f"<Response>"
             f"  <Connect>"
-            f"    <Stream url=\"wss://{domain}/api/voice/media-stream/{target_phone_without_plus}/{conversation_id}\" />"
+            f"    <Stream url=\"wss://{domain}/media-stream/{target_phone_with_plus}/{voice_call_id}\" />"
             f"  </Connect>"
             f"</Response>"
         )
         call = client.calls.create(
             record=False,
             from_=twilio_phone_number,
-            to=target_phone,
+            to=target_phone_with_plus,
             twiml=outbound_twiml,
         )
-        logger.info(f"Made call to {target_phone} with SID: {call.sid}")
+        logger.info(f"Made a call to {target_phone_with_plus} with SID: {call.sid}")
 
         return {
             "statusCode": 200,

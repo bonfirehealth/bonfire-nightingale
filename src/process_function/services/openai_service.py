@@ -3,6 +3,7 @@ import json
 from datetime import datetime, timedelta
 
 import pytz
+from psycopg2.extensions import cursor as Psycopg2Cursor
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 from openai import OpenAI, APIConnectionError, RateLimitError, APIStatusError
 
@@ -23,7 +24,7 @@ def default_serializer(obj: object) -> str:
         return obj.isoformat()
     raise TypeError(f"Type {type(obj)} not serializable")
 
-def construct_openai_prompt(parent_data: dict, children: list, message_history: str, user_message: str) -> str:
+def construct_openai_prompt(parent_data: dict, children: list, message_history: str, user_message: str, custom_data: dict) -> str:
     """
     Constructs the detailed system and user prompt for the OpenAI API.
     
@@ -32,6 +33,7 @@ def construct_openai_prompt(parent_data: dict, children: list, message_history: 
         children (list): The list of children associated with the parent.
         message_history (str): The message history.
         user_message (str): The user message.
+        custom_data (dict): Custom data to be included in the prompt.
     
     Returns:
         str: The constructed prompt.
@@ -67,10 +69,55 @@ def construct_openai_prompt(parent_data: dict, children: list, message_history: 
         monthly_summary_opted_in=parent_data.get("monthly_summary_opted_in", False),
         children_info=children_info,
         message_history=message_history,
-        user_message=user_message
+        user_message=user_message,
     )
     
     return system_prompt
+
+
+def get_last_voice_call_time(cursor: Psycopg2Cursor, parent_id: int) -> str:
+    """
+    Retrieves the last voice call time for a parent.
+    
+    Args:
+        cursor (Cursor): The database cursor.
+        parent_id (int): The ID of the parent.
+    
+    Returns:
+        str: Formatted string like "x minutes ago" or "more than 1 hour ago".
+             Returns "never" if no voice calls have been made.
+    """
+    # Get the last voice call from voice_calls table
+    cursor.execute("SELECT MAX(created_at) FROM voice_calls WHERE parent_id = %s", (parent_id,))
+    result = cursor.fetchone()
+    
+    if not result or not result[0]:
+        return "never"
+        
+    return _format_time_ago(result[0])
+
+
+def _format_time_ago(dt: datetime) -> str:
+    """
+    Format a datetime as a human-readable string like "x minutes ago" or "more than 1 hour ago".
+    
+    Args:
+        dt (datetime): The datetime to format.
+        
+    Returns:
+        str: Formatted time string.
+    """
+    now = datetime.now(pytz.UTC)
+    time_diff = now - dt.replace(tzinfo=pytz.UTC)
+    
+    # If the time difference is more than 1 hour
+    if time_diff > timedelta(hours=1):
+        return "more than 1 hour ago"
+    
+    # Calculate minutes difference
+    minutes = int(time_diff.total_seconds() / 60)
+    return f"{minutes} minutes ago"
+
 
 def log_retry_attempt(retry_state):
     """Log the retry attempt details."""

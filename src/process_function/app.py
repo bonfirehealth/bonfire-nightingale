@@ -56,7 +56,11 @@ def lambda_handler(event: dict, context: dict) -> dict:
             # 6. Construct the prompt for OpenAI
             logger.debug(f"Constructing OpenAI prompt for parent {parent_id}. Message history: {message_history}")
             children = db.get_all_children(cursor, parent_id)
-            prompt = ai.construct_openai_prompt(parent_data, children, message_history, user_message)
+            custom_data = {
+                "last_voice_call_time": ai.get_last_voice_call_time(cursor, parent_id),
+            }
+            prompt = ai.construct_openai_prompt(
+                parent_data, children, message_history, user_message, custom_data)
 
             # 7. Call OpenAI API
             logger.debug(f"Calling OpenAI API for parent {parent_id}")
