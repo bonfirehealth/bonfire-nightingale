@@ -30,11 +30,7 @@ def create_trial_schedules(whatsapp_id: str, coaching_session_id: int) -> None:
 
     # Define the nudge and activation time (in days)
     schedules_to_create = [
-        {"name": "day-7-nudge", "days": 7, "type": "nudge_day_7_soft_introduction"},
-        {"name": "day-14-nudge", "days": 14, "type": "nudge_day_14_low_usage"},
-        {"name": "day-20-conversion", "days": 20, "type": "nudge_day_20_conversion"},
-        {"name": "day-28-reminder", "days": 28, "type": "nudge_day_28_final_reminder"},
-        {"name": "day-30-expiry", "days": 30, "type": "trial_expiry"},
+        {"name": "day-7-expiry", "days": 7, "type": "trial_expiry"},
     ]
 
     logger.info(f"Creating trial schedules for user {whatsapp_id}")
@@ -118,7 +114,13 @@ def schedule_single_event(whatsapp_id: str, coaching_session_id: int | None, eve
         logger.error(f"Failed to create schedule {schedule_name}. Error: {e}")
         raise e
 
-def schedule_voice_call(parent_id: int, target_phone: str, voice_call_id: int, delay_minutes: int = 1):
+def schedule_voice_call(
+    parent_id: int,
+    target_phone: str,
+    voice_call_id: int,
+    voice_language: str,
+    delay_minutes: int = 1
+):
     """
     Schedule a voice call for the parent.
     
@@ -163,7 +165,7 @@ def schedule_voice_call(parent_id: int, target_phone: str, voice_call_id: int, d
     schedule_expression = f"at({schedule_time.strftime('%Y-%m-%dT%H:%M:%S')})"
     
     # Create a unique name for the schedule to avoid conflicts and manage it easily
-    schedule_name = f"voice-call-{parent_id}-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+    schedule_name = f"voice-call-{target_phone}-{datetime.now().strftime('%Y%m%d%H%M%S')}"
     
     logger.info(f"Offering voice call to parent {parent_id}")
     try:
@@ -171,6 +173,7 @@ def schedule_voice_call(parent_id: int, target_phone: str, voice_call_id: int, d
             "parent_id": parent_id,
             "target_phone": target_phone,
             "voice_call_id": voice_call_id,
+            "voice_language": voice_language,
             "domain": VOICE_CALL_DOMAIN,
             "twilio_phone_number": TWILIO_PHONE_NUMBER,
             "twilio_account_sid": TWILIO_ACCOUNT_SID,

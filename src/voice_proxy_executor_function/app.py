@@ -9,10 +9,10 @@ logger.setLevel(logging.INFO)
 def lambda_handler(event: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
     try:
         # Validate required parameters
-        parent_id = event.get("parent_id")
         twilio_phone_number = event.get("twilio_phone_number")
         twilio_account_sid = event.get("twilio_account_sid")
         twilio_auth_token = event.get("twilio_auth_token")
+        voice_language = event.get("voice_language")
         domain = event.get("domain")
         target_phone = event.get("target_phone")
         voice_call_id = event.get("voice_call_id")
@@ -39,7 +39,7 @@ def lambda_handler(event: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, 
             f"<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
             f"<Response>"
             f"  <Connect>"
-            f"    <Stream url=\"wss://{domain}/media-stream/{target_phone_with_plus}/{voice_call_id}\" />"
+            f"    <Stream url=\"wss://{domain}/media-stream/{target_phone_with_plus}/{voice_call_id}/{voice_language}\" />"
             f"  </Connect>"
             f"</Response>"
         )

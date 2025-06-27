@@ -1,11 +1,19 @@
 NUDGE_MESSAGE = {
     "3_day_follow_up": "Hey! How have things been since we last spoke? Did anything shift, even slightly?",
     "monthly_summary": "Hi! Here's your monthly summary of progress with Nightingale. You've made some great strides in parenting, and I'm here to support you further. If you have any questions or need help, just let me know! Full name: {full_name}, Total successful follow-ups: {successful_follow_ups}, Total sessions: {total_sessions}.",
-    "nudge_day_7_soft_introduction": "Hello! This is Nightingale again, your AI Parenting Coach from Bonfire Pediatrics. Just checking in — did you manage to apply anything from the parent guidebook last week? I'm here if you want to talk through anything — whether it's a tough moment with your child, questions about confusing behaviors, or just figuring out how to parent better. What has bothered you in the past week?",
-    "nudge_day_14_low_usage": "Hello! This is Nightingale again, your AI Parenting Coach from Bonfire Pediatrics. Just checking in — it's been a couple of weeks since you got our parent guidebook, and I wanted to see how things have been going. If anything's been weighing on you lately — whether it's stress at home, a tough moment with your child, or something you've been second-guessing. What has bothered you in the past week?",
-    "nudge_day_20_conversion": "You've already started making great progress. Here's a summary of your achievements: Full name: {full_name}, Total successful follow-ups: {successful_follow_ups}, Total sessions: {total_sessions}. Nightingale's here to keep supporting you beyond this free trial. Would you like us to continue this support for just $8/month? If yes, please reply with 'Yes'.",
-    "nudge_day_28_reminder": "Hi again! Your Nightingale free trial ends in two days. I'd love to keep supporting you if you'd like to stay on — it's just $8/month, and you can cancel anytime. If you're keen to continue, please reply with 'Yes' to receive the payment link. Do you need help with the payment process?",
-    "trial_expiry": "Hi, your trial has ended. If you'd like to continue using Nightingale, please reply with 'Yes' to receive the payment link."
+    "trial_expiry": """Hello! This is Keith, creator of Nightingale. I hope she has supported you well so far! 
+We'd love to keep supporting you for free, but to sustain our operations, we'll need to start charging a nominal fee. Thanks for your understanding!
+You can keep going with:
+- Unlimited text and phone consults
+- Progress summaries to track what's working
+- Priority referrals to our tier 1 psychologist team
+
+It's $99/year (save 56%) or $19/month — just a fraction of a regular clinic consult.
+
+Just reply **99** or **19** if you'd like to upgrade for more perks.
+
+If you prefer not to upgrade at this moment, you can still use Nightingale — limited to one text or phone consult per month without progress tracking. Thanks for your support regardless!
+"""
 }
 
 MONTHLY_SUMMARY_FALLBACK = ""

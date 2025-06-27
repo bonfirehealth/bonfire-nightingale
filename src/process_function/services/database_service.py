@@ -134,7 +134,7 @@ def update_parent_preferences(cursor: Psycopg2Cursor, parent_id: int, preference
         parent_id: Parent's ID
         preferences: Preferences to update
     """
-    allowed_fields = {"monthly_summary_opted_in", "current_mode", "current_step", "subscription_status"}
+    allowed_fields = {"current_mode", "current_step", "subscription_status"}
     updates = {k: v for k, v in preferences.items() if k in allowed_fields}
     
     if not updates:
@@ -413,7 +413,6 @@ def update_coaching_session(cursor: Psycopg2Cursor, session_id: int, updates: Di
     allowed_fields = {
         "status", "session_start_time", "session_end_time", "parent_insight", 
         "action_step", "follow_up_scheduled", "follow_up_sent_at", "follow_up_outcome",
-        "monthly_summary_offered", "monthly_summary_opted_in"
     }
     
     filtered_updates = {k: v for k, v in updates.items() if k in allowed_fields}
@@ -439,9 +438,7 @@ def should_schedule_nudges(cursor: Psycopg2Cursor, parent_id: int) -> bool:
     """
     cursor.execute(
         """
-        SELECT subscription_status, sent_nudge_day_7_soft_introduction, 
-        sent_nudge_day_14_low_usage, sent_nudge_day_20_conversion,
-        sent_nudge_day_28_final_reminder
+        SELECT subscription_status, sent_trial_expiry
         FROM parents WHERE id = %s
         """,
         (parent_id,)
@@ -452,10 +449,7 @@ def should_schedule_nudges(cursor: Psycopg2Cursor, parent_id: int) -> bool:
         raise ValueError(f"Parent with ID {parent_id} not found")
     
     subscription_status = result[0]
-    sent_nudge_day_7_soft_introduction = result[1]
-    sent_nudge_day_14_low_usage = result[2]
-    sent_nudge_day_20_conversion = result[3]
-    sent_nudge_day_28_final_reminder = result[4]
+    sent_trial_expiry = result[1]
     
     logger.debug(f"Parent {parent_id} subscription status: {subscription_status}")
 
@@ -467,38 +461,31 @@ def should_schedule_nudges(cursor: Psycopg2Cursor, parent_id: int) -> bool:
         )
         subscription_status = "trialing"
     
-    return (
-        subscription_status == "trialing" and
-        any([
-            sent_nudge_day_7_soft_introduction == False, 
-            sent_nudge_day_14_low_usage == False, 
-            sent_nudge_day_20_conversion == False, 
-            sent_nudge_day_28_final_reminder == False
-        ])
-    )
+    return subscription_status == "trialing" and sent_trial_expiry == False
 
 
 # =============================================================================
 # VOICE CALL OPERATIONS
 # =============================================================================
-def create_voice_call(cursor: Psycopg2Cursor, parent_id: int) -> Dict[str, Any]:
+def create_voice_call(cursor: Psycopg2Cursor, parent_id: int, user_preferred_language: str) -> Dict[str, Any]:
     """
     Create new voice call.
     
     Args:
         cursor: Database cursor
         parent_id: Parent's ID
+        user_preferred_language: User's preferred language
         
     Returns:
         Created voice call data
     """
     cursor.execute(
         """
-        INSERT INTO voice_calls (parent_id, status)
-        VALUES (%s, 'pending')
+        INSERT INTO voice_calls (parent_id, status, user_preferred_language)
+        VALUES (%s, 'pending', %s)
         RETURNING *
         """,
-        (parent_id,)
+        (parent_id, user_preferred_language)
     )
     new_voice_call = cursor.fetchone()
     logger.info(f"New voice call created for parent {parent_id}")

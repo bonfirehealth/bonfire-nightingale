@@ -7,20 +7,21 @@ import sys
 from fastapi import FastAPI, WebSocket
 from dotenv import load_dotenv
 
-from utils import (
-    get_signed_url
+from utils import get_signed_url, get_agent_id_by_language
+from config import (
+    logger, ELEVENLABS_API_KEY, SYSTEM_PROMPT
 )
-from config import logger, SYSTEM_PROMPT
 from database_service import log_message
 
 load_dotenv()
 
 MAX_CALL_DURATION_SECONDS = int(os.environ.get("MAX_CALL_DURATION_SECONDS", 1800))
+logger.info(f"[Server] Max call duration: {MAX_CALL_DURATION_SECONDS} seconds")
 
 app = FastAPI()
 
-@app.websocket("/media-stream/{target_phone}/{voice_call_id}")
-async def outbound_media_stream(websocket: WebSocket, target_phone: str, voice_call_id: int):
+@app.websocket("/media-stream/{target_phone}/{voice_call_id}/{voice_language}")
+async def outbound_media_stream(websocket: WebSocket, target_phone: str, voice_call_id: int, voice_language: str):
     logger.info("[Server] Client connected to outbound media stream")
     await websocket.accept()
     logger.info("[Server] Twilio connected to outbound media stream")
@@ -51,7 +52,11 @@ async def outbound_media_stream(websocket: WebSocket, target_phone: str, voice_c
         # db_conn = get_db_connection()
 
         # Set up ElevenLabs connection
-        signed_url = await get_signed_url()
+        logger.info(f"[ElevenLabs] Voice language: {voice_language}")
+        signed_url = await get_signed_url(
+            api_key=ELEVENLABS_API_KEY,
+            agent_id=get_agent_id_by_language(voice_language)
+        )
         logger.info(f"[ElevenLabs] Signed URL: {signed_url}")
         
         async with websockets.connect(signed_url) as elevenlabs_ws:

@@ -183,9 +183,6 @@ def handle_schedule_monthly_summary(cursor: Psycopg2Cursor, parent_id: int, ai_r
         parent_id: Parent's ID
         ai_response: Response data from AI service containing action-specific data (Not used here)
     """
-    # Update parent preference
-    db.update_parent_preferences(cursor, parent_id, {"monthly_summary_opted_in": True})
-    
     # Schedule monthly summary
     parent_info = db.get_parent_by_id(cursor, parent_id)
     scheduler.schedule_single_event(
@@ -232,6 +229,10 @@ def handle_offer_voice_call(cursor: Psycopg2Cursor, parent_id: int, ai_response:
         parent_id: Parent's ID
         ai_response: Response data from AI service containing action-specific data
     """
+    data = ai_response.get("data", {})
+
+    # Get user preferred language
+    user_preferred_language = data.get("user_preferred_language", "english")
     
     parent_info = db.get_parent_by_id(cursor, parent_id)
     if not parent_info:
@@ -239,15 +240,16 @@ def handle_offer_voice_call(cursor: Psycopg2Cursor, parent_id: int, ai_response:
         return
 
     # Create a new voice call
-    voice_call = db.create_voice_call(cursor, parent_id)
+    voice_call = db.create_voice_call(cursor, parent_id, user_preferred_language)
     if not voice_call:
         logger.error(f"Failed to create voice call for parent {parent_id}")
         return
 
     scheduler.schedule_voice_call(
-        parent_id,
-        parent_info["whatsapp_id"],
-        voice_call["id"],
+        parent_id=parent_id,
+        target_phone=parent_info["whatsapp_id"],
+        voice_call_id=voice_call["id"],
+        voice_language=user_preferred_language,
         delay_minutes=DEFAULT_DELAY_MINUTES
     )
     logger.info(f"Scheduled a voice call for parent {parent_id}")
@@ -287,10 +289,10 @@ def handle_checkout_subscription(cursor: Psycopg2Cursor, parent_id: int, ai_resp
         parent_id: Parent's ID
         ai_response: Response data from AI service containing action-specific data
     """
-    ai_response = ai_response.get("data", {})
+    data = ai_response.get("data", {})
 
     # Create Stripe Checkout session
-    session = stripe_service.create_checkout_session(parent_id)
+    session = stripe_service.create_checkout_session(parent_id, data.get("subscription_type", "monthly"))
 
     # Send message to parent with Stripe Checkout URL
     reply_from_ai = ai_response.get("reply_to_user", DEFAULT_MESSAGE_FOR_CHECKOUT_ACTION)

@@ -4,19 +4,20 @@ import aiohttp
 import requests
 
 from config import (
-    logger, ELEVENLABS_API_KEY, ELEVENLABS_AGENT_ID, PUBLIC_DOMAIN
+    logger, PUBLIC_DOMAIN, ELEVENLABS_ENGLISH_AGENT_ID,
+    ELEVENLABS_CHINESE_AGENT_ID
 )
 
 # Helper function to get signed URL for authenticated conversations
-async def get_signed_url():
+async def get_signed_url(api_key: str, agent_id: str):
     # Check for required environment variables
 
-    if not all([ELEVENLABS_API_KEY, ELEVENLABS_AGENT_ID]):
+    if not all([api_key, agent_id]):
         raise ValueError("Missing required environment variables")
 
     try:
-        url = f"https://api.elevenlabs.io/v1/convai/conversation/get_signed_url?agent_id={ELEVENLABS_AGENT_ID}"
-        headers = {"xi-api-key": ELEVENLABS_API_KEY}
+        url = f"https://api.elevenlabs.io/v1/convai/conversation/get_signed_url?agent_id={agent_id}"
+        headers = {"xi-api-key": api_key}
 
         async with aiohttp.ClientSession() as session:
             async with session.get(url, headers=headers) as response:
@@ -31,10 +32,10 @@ async def get_signed_url():
         logger.error(f"Error getting signed URL: {e}")
         raise
 
-async def get_agent_system_prompt():
+async def get_agent_system_prompt(api_key: str, agent_id: str):
     try:
-        url = f"https://api.elevenlabs.io/v1/convai/agents/{ELEVENLABS_AGENT_ID}"
-        headers = {"xi-api-key": ELEVENLABS_API_KEY}
+        url = f"https://api.elevenlabs.io/v1/convai/agents/{agent_id}"
+        headers = {"xi-api-key": api_key}
 
         async with aiohttp.ClientSession() as session:
             async with session.get(url, headers=headers) as response:
@@ -54,3 +55,11 @@ async def get_agent_system_prompt():
 def get_public_domain():
     """Returns public domain of the Fargate task"""
     return PUBLIC_DOMAIN
+
+def get_agent_id_by_language(language: str):
+    if language == "english":
+        return ELEVENLABS_ENGLISH_AGENT_ID
+    elif language == "chinese":
+        return ELEVENLABS_CHINESE_AGENT_ID
+    else:
+        return None

@@ -32,6 +32,7 @@ CREATE TYPE message_sender_enum AS ENUM ('user', 'ai');
 CREATE TYPE payment_type_enum AS ENUM ('appointment_fee', 'subscription');
 CREATE TYPE payment_status_enum AS ENUM ('succeeded', 'pending', 'failed');
 CREATE TYPE escalation_type_enum AS ENUM ('keyword_based', 'tone_based');
+CREATE TYPE user_preferred_language_enum AS ENUM ('english', 'chinese');
 
 
 -- =================================================================
@@ -59,14 +60,9 @@ CREATE TABLE parents (
 
     -- Nudge management
     follow_up_sent_at TIMESTAMPTZ,
-    sent_nudge_day_7_soft_introduction BOOLEAN NOT NULL DEFAULT FALSE,
-    sent_nudge_day_14_low_usage BOOLEAN NOT NULL DEFAULT FALSE,
-    sent_nudge_day_20_conversion BOOLEAN NOT NULL DEFAULT FALSE,
-    sent_nudge_day_28_final_reminder BOOLEAN NOT NULL DEFAULT FALSE,
+    sent_trial_expiry BOOLEAN NOT NULL DEFAULT FALSE,
 
     -- Monthly summary management
-    monthly_summary_offered BOOLEAN NOT NULL DEFAULT FALSE,
-    monthly_summary_opted_in BOOLEAN NOT NULL DEFAULT FALSE,
     monthly_summary_sent_at TIMESTAMPTZ,
 
     -- Common fields
@@ -180,6 +176,7 @@ CREATE TABLE voice_calls (
     stream_sid VARCHAR(255),
     target_phone VARCHAR(50),
     status VARCHAR(50) NOT NULL,
+    user_preferred_language user_preferred_language_enum NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     disconnected_at TIMESTAMPTZ
 );
@@ -218,43 +215,9 @@ BEGIN
 
     -- Check nudge type and conditions
     CASE p_nudge_type
-        WHEN 'nudge_day_7_soft_introduction' THEN
-            -- Day 7: Soft Re-Introduction
-            IF v_parent.trial_days >= 7 
-               AND NOT v_parent.sent_nudge_day_7_soft_introduction 
-               AND v_session_count <= 1
-               AND v_parent.subscription_status = 'trialing' THEN
-                v_should_send := TRUE;
-            END IF;
-            
-        WHEN 'nudge_day_14_low_usage' THEN
-            -- Day 14: Low Usage
-            IF v_parent.trial_days >= 14 
-               AND NOT v_parent.sent_nudge_day_14_low_usage 
-               AND v_session_count <= 1
-               AND v_parent.subscription_status = 'trialing' THEN
-                v_should_send := TRUE;
-            END IF;
-            
-        WHEN 'nudge_day_20_conversion' THEN
-            -- Day 20: Conversion Prompt
-            IF v_parent.trial_days >= 20
-               AND v_session_count >= 2
-               AND v_parent.subscription_status = 'trialing' THEN
-                v_should_send := TRUE;
-            END IF;
-            
-        WHEN 'nudge_day_28_final_reminder' THEN
-            -- Day 28: Final Reminder
-            IF v_parent.trial_days >= 28 
-               AND NOT v_parent.sent_nudge_day_28_final_reminder 
-               AND v_parent.subscription_status = 'trialing' THEN
-                v_should_send := TRUE;
-            END IF;
-        
         WHEN 'trial_expiry' THEN
             -- Trial Expiry
-            IF v_parent.trial_days >= 30 
+            IF v_parent.trial_days >= 7 
                AND NOT v_parent.sent_trial_expiry 
                AND v_parent.subscription_status = 'trialing' THEN
                 v_should_send := TRUE;
@@ -294,7 +257,6 @@ BEGIN
         FROM parents
         WHERE id = v_parent_id
           AND (subscription_status = 'trialing' OR subscription_status = 'active_paid')
-          AND monthly_summary_opted_in = TRUE
     ) THEN
         RETURN TRUE;
     END IF;

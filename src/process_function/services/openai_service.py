@@ -65,8 +65,6 @@ def construct_openai_prompt(parent_data: dict, children: list, message_history: 
         subscription_status=parent_data.get("subscription_status", "N/A"),
         trial_remaining_days=trial_remaining_days,
         session_count=parent_data.get("session_count", 0),
-        monthly_summary_offered=parent_data.get("monthly_summary_offered", False),
-        monthly_summary_opted_in=parent_data.get("monthly_summary_opted_in", False),
         children_info=children_info,
         message_history=message_history,
         user_message=user_message,

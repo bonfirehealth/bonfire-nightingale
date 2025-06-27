@@ -1,12 +1,17 @@
 import stripe
-from config import STRIPE_SECRET_KEY, STRIPE_PRICE_ID, STRIPE_WEBHOOK_SUCCESS_URL, STRIPE_WEBHOOK_CANCEL_URL, logger
+from config import (
+    STRIPE_SECRET_KEY, STRIPE_MONTHLY_PRICE_ID, STRIPE_YEARLY_PRICE_ID,
+    STRIPE_WEBHOOK_SUCCESS_URL, STRIPE_WEBHOOK_CANCEL_URL,
+    logger
+)
 
-def create_checkout_session(user_id: int | str) -> stripe.checkout.Session:
+def create_checkout_session(user_id: int | str, subscription_type: str) -> stripe.checkout.Session:
     """
     Creates a checkout session for a user.
     
     Args:
         user_id (int | str): The ID of the user.
+        subscription_type (str): The type of subscription.
     
     Returns:
         dict: The checkout session object.
@@ -16,7 +21,7 @@ def create_checkout_session(user_id: int | str) -> stripe.checkout.Session:
         session = stripe.checkout.Session.create(
             mode="subscription",
             line_items=[{
-                "price": STRIPE_PRICE_ID,
+                "price": STRIPE_MONTHLY_PRICE_ID if subscription_type == "monthly" else STRIPE_YEARLY_PRICE_ID,
                 "quantity": 1,
             }],
             success_url=f"{STRIPE_WEBHOOK_SUCCESS_URL}?session_id={{CHECKOUT_SESSION_ID}}",

@@ -111,9 +111,6 @@ def process_nudge_by_type(db_conn: Connection, nudge_type: str, whatsapp_id: str
         # Handle specific nudge types
         if nudge_type in nudge_processors:
             nudge_processors[nudge_type]()
-        # Handle generic nudge day types
-        elif nudge_type.startswith("nudge_day_"):
-            process_generic_nudges(db_conn, whatsapp_id, nudge_type)
         else:
             raise NudgeProcessingError(f"Unknown nudge type: {nudge_type}")
             
@@ -225,72 +222,16 @@ def process_trial_expiry(db_conn: Connection, whatsapp_id: str) -> None:
                 logger.warning(f"No trialing user found for WhatsApp ID {whatsapp_id}")
             else:
                 logger.info(f"Updated subscription status to trial_expired for user {whatsapp_id}")
+        
+        # Send message
+        message = NUDGE_MESSAGE.get("trial_expiry")
+        if not message:
+            raise NudgeProcessingError("No message defined for trial expiry")
+
+        wati.send_message(whatsapp_id, message)
 
     except Exception as e:
         logger.error(f"Error processing trial expiry for user {whatsapp_id}: {str(e)}\n{traceback.format_exc()}")
-        raise
-
-
-def process_generic_nudges(db_conn: Connection, whatsapp_id: str, nudge_type: str) -> None:
-    """
-    Process generic nudges for a user.
-    
-    Args:
-        db_conn: The database connection
-        whatsapp_id: The WhatsApp ID of the user
-        nudge_type: The type of nudge
-    """
-    NUDGE_TYPE_TO_COLUMN_NAME = {
-        "nudge_day_7_soft_introduction": "sent_nudge_day_7_soft_introduction",
-        "nudge_day_14_low_usage": "sent_nudge_day_14_low_usage",
-        "nudge_day_20_conversion": "sent_nudge_day_20_conversion",
-        "nudge_day_28_final_reminder": "sent_nudge_day_28_final_reminder",
-    }
-    
-    if nudge_type not in NUDGE_TYPE_TO_COLUMN_NAME:
-        raise NudgeProcessingError(f"Unsupported nudge type: {nudge_type}")
-    
-    try:
-        # Check if we can send the nudge
-        if not _can_send_nudge(db_conn, whatsapp_id, nudge_type):
-            logger.info(f"Nudge {nudge_type} already sent for user {whatsapp_id}")
-            return
-
-        # Update database
-        column_name = NUDGE_TYPE_TO_COLUMN_NAME[nudge_type]
-        with db_conn.cursor() as cursor:
-            cursor.execute(
-                f"UPDATE parents SET {column_name} = True WHERE whatsapp_id = %s",
-                (whatsapp_id,)
-            )
-            
-            if cursor.rowcount == 0:
-                raise NudgeProcessingError(f"No parent found for WhatsApp ID {whatsapp_id}")
-
-        # Get and send message
-        message = NUDGE_MESSAGE.get(nudge_type)
-        if not message:
-            raise NudgeProcessingError(f"No message defined for nudge type: {nudge_type}")
-
-        # Format message with summary if needed
-        if nudge_type in ["nudge_day_20_conversion", "nudge_day_28_final_reminder"]:
-            summary = _get_user_summary(db_conn, whatsapp_id)
-            message = message.format(
-                full_name=summary[0], 
-                successful_follow_ups=summary[1], 
-                total_sessions=summary[2]
-            )
-
-        # Send message
-        wati.send_message(whatsapp_id, message)
-
-        # Log message
-        parent_id = _get_parent_id_from_whatsapp_id(db_conn, whatsapp_id)
-        _log_message(db_conn, parent_id, "ai", message)
-        logger.info(f"Generic nudge {nudge_type} processed successfully for user {whatsapp_id}")
-
-    except Exception as e:
-        logger.error(f"Error processing generic nudge {nudge_type} for user {whatsapp_id}: {str(e)}\n{traceback.format_exc()}")
         raise
 
 
@@ -341,19 +282,6 @@ def _build_monthly_summary_message(monthly_stats: Tuple) -> str:
         total_sessions=monthly_stats[2]
     )
 
-
-def _get_user_summary(db_conn: Connection, whatsapp_id: str) -> Tuple:
-    """Get user summary for nudge messages"""
-    with db_conn.cursor() as cursor:
-        cursor.execute(
-            "SELECT parent_full_name, successful_follow_ups, total_sessions FROM create_monthly_summary_for_user(%s)", 
-            (whatsapp_id,)
-        )
-        result = cursor.fetchone()
-        if result is None:
-            logger.error(f"No parent found for user {whatsapp_id}")
-            raise NudgeProcessingError(f"No parent found for user {whatsapp_id}")
-        return result
 
 def _is_valid_whatsapp_id(whatsapp_id: str) -> bool:
     """Check if the WhatsApp ID is valid"""

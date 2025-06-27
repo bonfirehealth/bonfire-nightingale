@@ -58,6 +58,34 @@ psql -h <RDS_ENDPOINT> -U <RDS_USERNAME> -d <RDS_DATABASE>  # might need to inst
 sudo amazon-linux-extras install postgresql10
 ```
 
+### Install docker on Amazon Linux AMI
+```bash
+sudo yum update -y
+sudo amazon-linux-extras install docker
+sudo service docker start
+sudo usermod -a -G docker ec2-user
+```
+
+### Install ngrok
+```bash
+wget https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-amd64.tgz -P /tmp
+curl -o /tmp/ngrok-v3-stable-linux-amd64.tgz https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-amd64.tgz
+tar xvzf /tmp/ngrok-v3-stable-linux-amd64.tgz -C /tmp
+sudo mv /tmp/ngrok /usr/local/bin
+ngrok --version
+```
+
+Configure ngrok
+```bash
+ngrok config add-authtoken <YOUR_AUTH_TOKEN>
+```
+
+Run voice proxy server
+```bash
+docker build --no-cache -t voice-proxy .
+docker run -p 8000:8000 voice-proxy
+```
+
 ## Create Stripe Product
 1. Go to Stripe Dashboard -> Products -> Create Product
 2. Go to Developers -> Webhooks -> Add endpoint
