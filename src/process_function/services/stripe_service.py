@@ -17,6 +17,11 @@ def create_checkout_session(user_id: int | str, subscription_type: str) -> strip
         dict: The checkout session object.
     """
     try:
+        logger.info(f"Creating checkout session for user {user_id}")
+        logger.debug(f"Subscription type: {subscription_type}")
+        logger.debug(f"Monthly price ID: {STRIPE_MONTHLY_PRICE_ID}")
+        logger.debug(f"Yearly price ID: {STRIPE_YEARLY_PRICE_ID}")
+
         stripe.api_key = STRIPE_SECRET_KEY
         session = stripe.checkout.Session.create(
             mode="subscription",
@@ -24,11 +29,12 @@ def create_checkout_session(user_id: int | str, subscription_type: str) -> strip
                 "price": STRIPE_MONTHLY_PRICE_ID if subscription_type == "monthly" else STRIPE_YEARLY_PRICE_ID,
                 "quantity": 1,
             }],
-            success_url=f"{STRIPE_WEBHOOK_SUCCESS_URL}?session_id={{CHECKOUT_SESSION_ID}}",
+            client_reference_id=str(user_id),
+            success_url=STRIPE_WEBHOOK_SUCCESS_URL,
             cancel_url=STRIPE_WEBHOOK_CANCEL_URL,
-            client_reference_id=user_id,
         )
+        logger.info(f"Checkout session created for user {user_id}: {session}")
         return session
     except Exception as e:
         logger.error(f"Error creating checkout session: {e}")
-        raise
+        raise Exception(f"Error creating checkout session: {e}")

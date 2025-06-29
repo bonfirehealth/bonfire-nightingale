@@ -324,6 +324,20 @@ class ApiLambdaStack(Stack):
             integration=stripe_integration
         )
 
+        # Add Stripe success endpoint
+        http_api.add_routes(
+            path="/stripe/success", # Endpoint for Stripe success
+            methods=[apigwv2.HttpMethod.GET],
+            integration=stripe_integration
+        )
+
+        # Add Stripe cancel endpoint
+        http_api.add_routes(
+            path="/stripe/cancel", # Endpoint for Stripe cancel
+            methods=[apigwv2.HttpMethod.GET],
+            integration=stripe_integration
+        )
+
         # Add Dashboard endpoint
         http_api.add_routes(
             path="/dashboard", # Endpoint để xem dashboard
