@@ -89,6 +89,7 @@ def handle_send_to_clinics_and_process_payment(cursor: Psycopg2Cursor, parent_id
     parent_info = db.get_parent_by_id(cursor, parent_id)
     wati.send_template_message(parent_info["whatsapp_id"], "paynow_qr", "paynow_qr")
 
+
 def handle_coaching_session_completed(cursor: Psycopg2Cursor, parent_id: int, ai_response: dict) -> None:
     """
     Handle completion of a coaching session.
@@ -298,7 +299,17 @@ def handle_checkout_subscription(cursor: Psycopg2Cursor, parent_id: int, ai_resp
     reply_from_ai = ai_response.get("reply_to_user", DEFAULT_MESSAGE_FOR_CHECKOUT_ACTION)
     parent_info = db.get_parent_by_id(cursor, parent_id)
     final_reply_to_user = f"{reply_from_ai}\n{session.url}"
-    wati.send_text_message(parent_info["whatsapp_id"], final_reply_to_user)
+    # wati.send_text_message(parent_info["whatsapp_id"], final_reply_to_user)
+
+    # Get the query path from the session URL
+    query_path = session.url.replace("https://checkout.stripe.com/c/pay/", "")
+
+    wati.send_template_message(
+        recipient_id=parent_info["whatsapp_id"], 
+        template_name="subscriptions", 
+        broadcast_name="subscriptions", 
+        parameters=[{"name": "query_path", "value": query_path}]
+    )
 
     # Log the message in the database
     db.log_message(cursor, parent_id, 'ai', final_reply_to_user)

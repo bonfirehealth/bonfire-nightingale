@@ -1,5 +1,7 @@
 -- Subscription Plans
 INSERT INTO subscription_plans (stripe_price_id, name, description, type, amount, currency)
 VALUES 
-('price_1RewUxDGa367uEb7bVEOW3fz', 'Monthly Plan', 'Access to all features for a month', 'monthly', 19.00, 'SGD'),
-('price_1RewTJDGa367uEb7vAARgGnF', 'Yearly Plan', 'Discounted yearly subscription', 'yearly', 99.00, 'SGD');
+('price_1RfXPZJrqghNBp9AmaNwB9Sv', 'Monthly Plan', 'Nightingale by Bonfire Pediatrics, an AI Parenting Coach offers you unlimited text and phone consults (in 10 languages), post-session and monthly progress summaries to track whats working for your child, and priority referrals to our tier 1 psychologist team.', 'monthly', 19.00, 'SGD'),
+('price_1RfXQQJrqghNBp9AToMqq0Lp', 'Yearly Plan', 'Nightingale by Bonfire Pediatrics, an AI Parenting Coach offers you unlimited text and phone consults (in 10 languages), post-session and monthly progress summaries to track whats working for your child, and priority referrals to our tier 1 psychologist team.', 'yearly', 99.00, 'SGD'),
+('price_1ReRDpJrqghNBp9ASNJuK4QU', 'Monthly Plan', 'Nightingale by Bonfire Pediatrics, an AI Parenting Coach offers you unlimited text and phone consults (in 10 languages), post-session and monthly progress summaries to track whats working for your child, and priority referrals to our tier 1 psychologist team.', 'monthly', 19.00, 'SGD'),
+('price_1ReRFcJrqghNBp9AHlnPZX4v', 'Yearly Plan', 'Nightingale by Bonfire Pediatrics, an AI Parenting Coach offers you unlimited text and phone consults (in 10 languages), post-session and monthly progress summaries to track whats working for your child, and priority referrals to our tier 1 psychologist team.', 'yearly', 99.00, 'SGD');

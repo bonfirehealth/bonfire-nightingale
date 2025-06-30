@@ -58,7 +58,9 @@ def send_text_message(recipient_id: str, message_text: str) -> bool:
         logger.error(f"Error sending WATI message: {e}")
         return False
 
-def send_template_message(recipient_id: str, template_name: str, broadcast_name: str) -> bool:
+
+def send_template_message(recipient_id: str, template_name: str,
+                          broadcast_name: str, parameters: dict = None) -> bool:
     """
     Send a template message to a WhatsApp user using WATI API with retry on network errors.
 
@@ -66,6 +68,7 @@ def send_template_message(recipient_id: str, template_name: str, broadcast_name:
         recipient_id (str): The WhatsApp ID of the recipient.
         template_name (str): The name of the template to send.
         broadcast_name (str): The name of the broadcast to send.
+        parameters (dict): The parameters to send with the template.
 
     Returns:
         bool: True if the message was sent successfully, False otherwise.
@@ -103,12 +106,14 @@ def send_template_message(recipient_id: str, template_name: str, broadcast_name:
             "template_name": template_name,
             "broadcast_name": broadcast_name
         }
+        if parameters:
+            data["parameters"] = parameters
         params = {
             "whatsappNumber": recipient_id
         }
         url = f"{wati_api_endpoint}/api/v1/sendTemplateMessage"
 
-        response = http.post(url, data=data, params=params, headers=headers)
+        response = http.post(url, json=data, params=params, headers=headers)
         response.raise_for_status()
 
         logger.info(f"Sent WATI template message to {recipient_id}")
