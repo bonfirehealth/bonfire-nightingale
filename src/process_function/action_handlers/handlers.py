@@ -297,7 +297,7 @@ def handle_checkout_subscription(cursor: Psycopg2Cursor, parent_id: int, ai_resp
     # Send message to parent with Stripe Checkout URL
     reply_from_ai = ai_response.get("reply_to_user", DEFAULT_MESSAGE_FOR_CHECKOUT_ACTION)
     parent_info = db.get_parent_by_id(cursor, parent_id)
-    final_reply_to_user = f"{reply_from_ai}\n\nPlease complete your subscription payment here: {session.url}"
+    final_reply_to_user = f"{reply_from_ai}\n{session.url}"
     wati.send_text_message(parent_info["whatsapp_id"], final_reply_to_user)
 
     # Log the message in the database

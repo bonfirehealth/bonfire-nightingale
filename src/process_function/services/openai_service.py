@@ -63,6 +63,7 @@ def construct_openai_prompt(parent_data: dict, children: list, message_history: 
         current_mode=parent_data.get("current_mode", "N/A"),
         current_step=parent_data.get("current_step", "N/A"),
         subscription_status=parent_data.get("subscription_status", "N/A"),
+        subscription_plans=custom_data.get("subscription_plans", "N/A"),
         trial_remaining_days=trial_remaining_days,
         session_count=parent_data.get("session_count", 0),
         children_info=children_info,
@@ -73,48 +74,26 @@ def construct_openai_prompt(parent_data: dict, children: list, message_history: 
     return system_prompt
 
 
-def get_last_voice_call_time(cursor: Psycopg2Cursor, parent_id: int) -> str:
+def get_subscription_plans(cursor: Psycopg2Cursor) -> str:
     """
-    Retrieves the last voice call time for a parent.
+    Retrieves the subscription plans for a parent.
     
     Args:
         cursor (Cursor): The database cursor.
-        parent_id (int): The ID of the parent.
     
     Returns:
-        str: Formatted string like "x minutes ago" or "more than 1 hour ago".
-             Returns "never" if no voice calls have been made.
+        str: The subscription plans.
     """
-    # Get the last voice call from voice_calls table
-    cursor.execute("SELECT MAX(created_at) FROM voice_calls WHERE parent_id = %s", (parent_id,))
-    result = cursor.fetchone()
-    
-    if not result or not result[0]:
-        return "never"
-        
-    return _format_time_ago(result[0])
+    cursor.execute("SELECT name, description, amount, currency FROM subscription_plans")
+    result = cursor.fetchall()
 
+    # Build a string of subscription plans (markdown table)
+    subscription_plans_str = ""
 
-def _format_time_ago(dt: datetime) -> str:
-    """
-    Format a datetime as a human-readable string like "x minutes ago" or "more than 1 hour ago".
+    for plan in result:
+        subscription_plans_str += f"Name: {plan[0]}, Description: {plan[1]}, Amount: {plan[2]}, Currency: {plan[3]}\n"
     
-    Args:
-        dt (datetime): The datetime to format.
-        
-    Returns:
-        str: Formatted time string.
-    """
-    now = datetime.now(pytz.UTC)
-    time_diff = now - dt.replace(tzinfo=pytz.UTC)
-    
-    # If the time difference is more than 1 hour
-    if time_diff > timedelta(hours=1):
-        return "more than 1 hour ago"
-    
-    # Calculate minutes difference
-    minutes = int(time_diff.total_seconds() / 60)
-    return f"{minutes} minutes ago"
+    return subscription_plans_str
 
 
 def log_retry_attempt(retry_state):

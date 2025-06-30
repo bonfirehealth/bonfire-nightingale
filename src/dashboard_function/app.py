@@ -69,7 +69,7 @@ def fetch_dashboard_metrics(cursor):
     cursor.execute("""
         SELECT
             COUNT(id) FILTER (WHERE subscription_status = 'active_paid') AS paid_users,
-            COUNT(id) FILTER (WHERE subscription_status IN ('trial_opted_out', 'trial_expired', 'cancelled')) AS finished_trial_users
+            COUNT(id) FILTER (WHERE subscription_status IN ('trialing', 'trial_opted_out', 'trial_expired', 'cancelled')) AS finished_trial_users
         FROM parents;
     """)
     result = cursor.fetchone()

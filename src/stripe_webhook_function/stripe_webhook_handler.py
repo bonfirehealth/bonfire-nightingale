@@ -24,15 +24,18 @@ class StripeWebhookHandler:
 
             logger.info(f"Received Stripe event: {event_type}")
 
-            if event_type == 'checkout.session.completed':
-                payment_service.handle_payment_success(event_data)
-            # Uncomment and implement other event handlers as needed
-            # elif event_type == 'payment_intent.payment_failed':
-            #     payment_service.handle_payment_failed(event_data)
-            # elif event_type in ['customer.subscription.created', 'customer.subscription.updated']:
-            #     subscription_service.handle_subscription_created(event_data)
-            # elif event_type == 'customer.subscription.deleted':
-            #     subscription_service.handle_subscription_cancelled(event_data)
+            if event_type == "customer.subscription.created":
+                # User subscribe to a plan
+                subscription_service.handle_subscription_created(event_data)
+            elif event_type == "customer.subscription.deleted":
+                # User cancel subscription
+                subscription_service.handle_subscription_deleted(event_data)
+            elif event_type == "invoice.payment_failed":
+                # Invoice payment failed
+                subscription_service.handle_invoice_payment_failed(event_data)
+            elif event_type == "checkout.session.completed":
+                # Checkout session completed
+                payment_service.handle_checkout_session_completed(event_data)
             else:
                 logger.info(f"Unhandled event type: {event_type}")
 
