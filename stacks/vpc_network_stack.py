@@ -74,19 +74,18 @@ class VpcNetworkStack(Stack):
             allow_all_outbound=True
         )
 
-        # Cho phép SSH vào Voice Proxy từ VPC
+        # Cho phép SSH từ internet (public access)
         self.voice_ec2_proxy_security_group.add_ingress_rule(
-            peer=ec2.Peer.ipv4("10.0.0.0/16"),
+            peer=ec2.Peer.any_ipv4(),
             connection=ec2.Port.tcp(22),
-            description="Allow SSH from VPC"
+            description="Allow SSH from anywhere"
         )
 
-        # Allow SSH from your specific IP (replace with your actual IP)
-        your_ip = "1.55.14.60/32"
+        # Cho phép HTTPS cho WebSocket (port 443)
         self.voice_ec2_proxy_security_group.add_ingress_rule(
-            peer=ec2.Peer.ipv4(your_ip),
-            connection=ec2.Port.tcp(22),
-            description="Allow SSH from my IP"
+            peer=ec2.Peer.any_ipv4(),
+            connection=ec2.Port.tcp(443),
+            description="Allow HTTPS/WebSocket from anywhere"
         )
 
         # Security Group cho RDS

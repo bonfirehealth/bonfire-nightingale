@@ -39,7 +39,7 @@ def lambda_handler(event: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, 
             f"<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
             f"<Response>"
             f"  <Connect>"
-            f"    <Stream url=\"wss://{domain}/media-stream/{target_phone_with_plus}/{voice_call_id}/{voice_language}\" />"
+            f"    <Stream url=\"wss://{domain}/media-stream/{target_phone}/{voice_call_id}/{voice_language}\" />"
             f"  </Connect>"
             f"</Response>"
         )

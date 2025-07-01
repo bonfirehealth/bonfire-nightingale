@@ -115,6 +115,7 @@ def schedule_single_event(whatsapp_id: str, coaching_session_id: int | None, eve
         raise e
 
 def schedule_voice_call(
+    schedule_name: str,
     parent_id: int,
     target_phone: str,
     voice_call_id: int,
@@ -164,9 +165,6 @@ def schedule_voice_call(
     schedule_time = now_utc + timedelta(minutes=delay_minutes)
     schedule_expression = f"at({schedule_time.strftime('%Y-%m-%dT%H:%M:%S')})"
     
-    # Create a unique name for the schedule to avoid conflicts and manage it easily
-    schedule_name = f"voice-call-{target_phone}-{datetime.now().strftime('%Y%m%d%H%M%S')}"
-    
     logger.info(f"Offering voice call to parent {parent_id}")
     try:
         payload = json.dumps({
@@ -199,3 +197,36 @@ def schedule_voice_call(
     except Exception as e:
         logger.error(f"Failed to create schedule {schedule_name}. Error: {e}")
         raise e
+
+
+def delete_scheduled_voice_call(schedule_name_prefix: str) -> None:
+    """
+    Delete the scheduled voice call event.
+    
+    Args:
+        schedule_name_prefix: Schedule name prefix
+    """
+    try:
+        paginator = scheduler_client.get_paginator('list_schedules')
+        pages = paginator.paginate(GroupName=VOICE_SCHEDULE_GROUP_NAME)
+
+        for page in pages:
+            for schedule in page.get('Schedules', []):
+                name = schedule['Name']
+                if name.startswith(schedule_name_prefix):
+                    logger.info(f"Deleting schedule: {name}")
+                    _delete_single_schedule(name)
+    except Exception as e:
+        logger.warning(f"Ignore. Failed to delete schedule {schedule_name_prefix}. Error: {e}")
+
+
+def _delete_single_schedule(schedule_name: str) -> None:
+    try:
+        scheduler_client.delete_schedule(
+            Name=schedule_name,
+            GroupName=VOICE_SCHEDULE_GROUP_NAME
+        )
+    except scheduler_client.exceptions.ResourceNotFoundException:
+        logger.warning(f"Schedule {schedule_name} not found. Skipping deletion.")
+    except Exception as e:
+        logger.warning(f"Ignore. Failed to delete schedule {schedule_name}. Error: {e}")

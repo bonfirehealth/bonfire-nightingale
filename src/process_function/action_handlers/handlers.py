@@ -241,12 +241,22 @@ def handle_offer_voice_call(cursor: Psycopg2Cursor, parent_id: int, ai_response:
         return
 
     # Create a new voice call
-    voice_call = db.create_voice_call(cursor, parent_id, user_preferred_language)
+    voice_call = db.create_voice_call(cursor, parent_id, parent_info["whatsapp_id"], user_preferred_language)
     if not voice_call:
         logger.error(f"Failed to create voice call for parent {parent_id}")
         return
 
+    # Create a unique name for the schedule to avoid conflicts and manage it easily
+    schedule_name = f"voice-call-{parent_info['whatsapp_id']}-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+
+    # Cancel any existing voice call
+    db.cancel_voice_call(cursor, parent_id)
+
+    # Delete scheduled voice call event
+    scheduler.delete_scheduled_voice_call(f"voice-call-{parent_info['whatsapp_id']}")
+
     scheduler.schedule_voice_call(
+        schedule_name=schedule_name,
         parent_id=parent_id,
         target_phone=parent_info["whatsapp_id"],
         voice_call_id=voice_call["id"],
@@ -254,6 +264,7 @@ def handle_offer_voice_call(cursor: Psycopg2Cursor, parent_id: int, ai_response:
         delay_minutes=DEFAULT_DELAY_MINUTES
     )
     logger.info(f"Scheduled a voice call for parent {parent_id}")
+
 
 def handle_trigger_escalation(cursor: Psycopg2Cursor, parent_id: int, ai_response: dict) -> None:
     """

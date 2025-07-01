@@ -128,7 +128,8 @@ class ApiLambdaStack(Stack):
             effect=iam.Effect.ALLOW,
             actions=[
                 "scheduler:CreateSchedule", "scheduler:DeleteSchedule",
-                "scheduler:UpdateSchedule", "scheduler:GetSchedule"
+                "scheduler:UpdateSchedule", "scheduler:GetSchedule",
+                "scheduler:ListSchedules"
             ],
             resources=[
                 f"arn:aws:scheduler:{self.region}:{self.account}:schedule/{schedule_group.name}/*",

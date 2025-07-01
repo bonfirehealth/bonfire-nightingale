@@ -4,9 +4,6 @@ import psycopg2
 from psycopg2.extensions import cursor as Psycopg2Cursor
 from config import logger, DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD
 
-# Global connection for Lambda reuse
-db_conn = None
-
 
 def get_db_connection() -> psycopg2.extensions.connection:
     """
@@ -18,21 +15,19 @@ def get_db_connection() -> psycopg2.extensions.connection:
     Raises:
         psycopg2.Error: If connection fails
     """
-    global db_conn
-    if db_conn is None or db_conn.closed:
-        try:
-            db_conn = psycopg2.connect(
-                host=DB_HOST,
-                port=DB_PORT,
-                dbname=DB_NAME,
-                user=DB_USER,
-                password=DB_PASSWORD
-            )
-            logger.info("Database connection established")
-        except psycopg2.Error as e:
-            logger.error(f"Database connection failed: {e}")
-            raise
-    return db_conn
+    try:
+        db_conn = psycopg2.connect(
+            host=DB_HOST,
+            port=DB_PORT,
+            dbname=DB_NAME,
+            user=DB_USER,
+            password=DB_PASSWORD
+        )
+        logger.info("Database connection established")
+        return db_conn
+    except psycopg2.Error as e:
+        logger.error(f"Database connection failed: {e}")
+        raise
 
 
 def _row_to_dict(cursor: Psycopg2Cursor, row: tuple) -> Dict[str, Any]:
@@ -41,6 +36,7 @@ def _row_to_dict(cursor: Psycopg2Cursor, row: tuple) -> Dict[str, Any]:
         return {}
     columns = [desc[0] for desc in cursor.description]
     return dict(zip(columns, row))
+
 
 def find_parent_by_whatsapp_id(cursor: Psycopg2Cursor, whatsapp_id: str) -> Optional[Dict[str, Any]]:
     cursor.execute(
@@ -54,7 +50,29 @@ def find_parent_by_whatsapp_id(cursor: Psycopg2Cursor, whatsapp_id: str) -> Opti
         return None
     return _row_to_dict(cursor, parent)
 
-def log_message(cursor: Psycopg2Cursor, whatsapp_id: str, sender: str, content: str) -> None:
+
+def get_call_history(cursor: Psycopg2Cursor, whatsapp_id: str) -> Optional[str]:
+    parent = find_parent_by_whatsapp_id(cursor, whatsapp_id)
+    if not parent:
+        return None
+
+    cursor.execute(
+        """
+        SELECT sender, content
+        FROM messages
+        WHERE parent_id = %s AND message_type = 'call'
+        ORDER BY created_at DESC
+        LIMIT 100
+        """,
+        (parent["id"],)
+    )
+    messages = cursor.fetchall()
+    if not messages:
+        return None
+    return "\n".join([f"{sender}: {content}" for sender, content in messages])
+
+
+def log_message(cursor: Psycopg2Cursor, whatsapp_id: str, sender: str, content: str, message_type: str = "call") -> None:
     """
     Log message to database.
     
@@ -71,8 +89,8 @@ def log_message(cursor: Psycopg2Cursor, whatsapp_id: str, sender: str, content: 
     parent_id = parent["id"]
     cursor.execute(
         """
-        INSERT INTO messages (parent_id, sender, content)
-        VALUES (%s, %s, %s)
+        INSERT INTO messages (parent_id, sender, content, message_type)
+        VALUES (%s, %s, %s, %s)
         """,
-        (parent_id, sender, content)
+        (parent_id, sender, content, message_type)
     )

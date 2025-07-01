@@ -82,12 +82,18 @@ db_stack.add_dependency(secrets_stack) # RDS credentials will be stored in Secre
 # Stack for Voice Proxy EC2
 # -------------------------------------
 voice_proxy_stack = VoiceProxyEc2Stack(app, f"NightingaleVoiceProxyStack-{environment_name}",
+    vpc=vpc_stack.vpc,  # Thêm VPC
     lambda_security_group=vpc_stack.lambda_security_group,
+    voice_ec2_proxy_security_group=vpc_stack.voice_ec2_proxy_security_group,
+    db_cluster=db_stack.db_cluster,
+    db_credentials_secret=db_stack.db_credentials_secret,
     application_secrets_arn=secrets_stack.application_secrets.secret_arn,
+    db_name=db_name,
     **stack_props,
 )
 voice_proxy_stack.add_dependency(vpc_stack)
 voice_proxy_stack.add_dependency(secrets_stack)
+voice_proxy_stack.add_dependency(db_stack)
 
 
 # -------------------------------------

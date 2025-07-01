@@ -5,27 +5,11 @@ import logging
 logger = logging.getLogger()
 logger.setLevel(logging.DEBUG if os.environ.get("ENVIRONMENT_NAME") == "dev" else logging.INFO)
 
-# # # --- Database ---
-# DB_HOST = os.environ.get("DB_HOST")
-# DB_PORT = os.environ.get("DB_PORT")
-# DB_NAME = os.environ.get("DB_NAME")
-# DB_USER = os.environ.get("DB_USER")
-# DB_PASSWORD = os.environ.get("DB_PASSWORD")
-
-# # --- Twilio ---
-# TWILIO_PHONE_NUMBER = os.environ.get("TWILIO_PHONE_NUMBER")
-# TWILIO_ACCOUNT_SID = os.environ.get("TWILIO_ACCOUNT_SID")
-# TWILIO_AUTH_TOKEN = os.environ.get("TWILIO_AUTH_TOKEN")
-# TARGET_PHONE = os.environ.get("TARGET_PHONE")
-# VOICE_CALL_ID = os.environ.get("VOICE_CALL_ID")
-
-# # Elevenlabs (for voice call proxy)
-# ELEVENLABS_API_KEY = os.environ.get("ELEVENLABS_API_KEY")
-# ELEVENLABS_AGENT_ID = os.environ.get("ELEVENLABS_AGENT_ID")
-# ELEVENLABS_WEBHOOK_SECRET = os.environ.get("ELEVENLABS_WEBHOOK_SECRET")
-
-# # --- Public domain ---
-# PUBLIC_DOMAIN = os.environ.get("PUBLIC_DOMAIN")
+# Add console handler if no handlers are configured
+if not logger.handlers:
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+    logger.addHandler(console_handler)
 
 # --- Database ---
 DB_HOST="nightingaledatabasestack-d-databasecluster68fc2945-rwipeod2ffaj.cluster-cd0csowcqlz1.ap-southeast-1.rds.amazonaws.com"
@@ -33,6 +17,14 @@ DB_PORT=5432
 DB_NAME="nightingale_dev"
 DB_USER="bonfire"
 DB_PASSWORD="Yl_CnHIYpT0e,Bw684Tipji.xsWkb4"
+
+# OpenAI
+OPENAI_API_KEY="sk-bonfire-D8ucpXWY5s3fHFxcoyOqT3BlbkFJuXxjuFwUwUbnrWXLzKSU"
+OPENAI_ASSISTANT_ID="asst_KzGUPJknnqGRy5rrKqkmeSQc"
+
+# WATI
+WATI_API_ENDPOINT="https://live-mt-server.wati.io/397781"
+WATI_ACCESS_TOKEN="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiIxNmIzZDUwNi02ZjdiLTRjOWItYWI0Ny1kODI3MjkwYWQ1OTUiLCJ1bmlxdWVfbmFtZSI6InRhbW52aHVzdGNjQGdtYWlsLmNvbSIsIm5hbWVpZCI6InRhbW52aHVzdGNjQGdtYWlsLmNvbSIsImVtYWlsIjoidGFtbnZodXN0Y2NAZ21haWwuY29tIiwiYXV0aF90aW1lIjoiMDMvMjUvMjAyNSAxMzoxODoyNyIsInRlbmFudF9pZCI6IjM5Nzc4MSIsImRiX25hbWUiOiJtdC1wcm9kLVRlbmFudHMiLCJodHRwOi8vc2NoZW1hcy5taWNyb3NvZnQuY29tL3dzLzIwMDgvMDYvaWRlbnRpdHkvY2xhaW1zL3JvbGUiOiJBRE1JTklTVFJBVE9SIiwiZXhwIjoyNTM0MDIzMDA4MDAsImlzcyI6IkNsYXJlX0FJIiwiYXVkIjoiQ2xhcmVfQUkifQ.o6dWvxYf1eGRKrgbSW-hcWu1jzdjhtThobp1VBvV4zI"
 
 # --- Twilio ---
 TWILIO_PHONE_NUMBER="+6531052531"
@@ -47,12 +39,4 @@ ELEVENLABS_ENGLISH_AGENT_ID="zvgUzjrGRpJmukxcVmGC"
 ELEVENLABS_CHINESE_AGENT_ID="agent_01jyndm70ben6aqjmc13mg3842"
 ELEVENLABS_POSTCALL_WEBHOOK_SECRET="wsec_33f0c57f1627ab9f52cb63ad2c6f21dc1d9f51d60d04b72c585a7525571a2479"
 
-PUBLIC_DOMAIN="9f7f-3-1-15-103.ngrok-free.app"
-
 MAX_CALL_DURATION_SECONDS=1800
-
-# --- System prompt ---
-SYSTEM_PROMPT_TEMPLATE = "system_prompt_template.txt"
-SYSTEM_PROMPT = ""
-with open(SYSTEM_PROMPT_TEMPLATE, "r", encoding="utf-8") as file:
-    SYSTEM_PROMPT = file.read()

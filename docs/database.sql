@@ -104,6 +104,12 @@ CREATE TYPE message_sender_enum AS ENUM (
     'ai'     -- System/AI response
 );
 
+-- Message type
+CREATE TYPE message_type_enum AS ENUM (
+    'whatsapp',  -- WhatsApp message
+    'call'       -- Phone call
+);
+
 -- Payment processing states
 CREATE TYPE payment_status_enum AS ENUM (
     'succeeded',  -- Payment completed
@@ -227,6 +233,7 @@ CREATE TABLE messages (
     -- Message Content
     sender message_sender_enum NOT NULL,
     content TEXT NOT NULL,
+    message_type message_type_enum NOT NULL DEFAULT 'whatsapp',
     
     -- Audit Trail
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()

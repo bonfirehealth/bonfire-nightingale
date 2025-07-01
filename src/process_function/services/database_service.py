@@ -467,13 +467,14 @@ def should_schedule_nudges(cursor: Psycopg2Cursor, parent_id: int) -> bool:
 # =============================================================================
 # VOICE CALL OPERATIONS
 # =============================================================================
-def create_voice_call(cursor: Psycopg2Cursor, parent_id: int, user_preferred_language: str) -> Dict[str, Any]:
+def create_voice_call(cursor: Psycopg2Cursor, parent_id: int, target_phone: str, user_preferred_language: str) -> Dict[str, Any]:
     """
     Create new voice call.
     
     Args:
         cursor: Database cursor
         parent_id: Parent's ID
+        target_phone: Target phone number
         user_preferred_language: User's preferred language
         
     Returns:
@@ -481,15 +482,29 @@ def create_voice_call(cursor: Psycopg2Cursor, parent_id: int, user_preferred_lan
     """
     cursor.execute(
         """
-        INSERT INTO voice_calls (parent_id, status, user_preferred_language)
-        VALUES (%s, 'pending', %s)
+        INSERT INTO voice_calls (parent_id, status, target_phone, user_preferred_language)
+        VALUES (%s, 'pending', %s, %s)
         RETURNING *
         """,
-        (parent_id, user_preferred_language)
+        (parent_id, target_phone, user_preferred_language)
     )
     new_voice_call = cursor.fetchone()
     logger.info(f"New voice call created for parent {parent_id}")
     return _row_to_dict(cursor, new_voice_call)
+
+
+def cancel_voice_call(cursor: Psycopg2Cursor, parent_id: int) -> None:
+    """
+    Cancel the latest scheduled voice call.
+    
+    Args:
+        cursor: Database cursor
+        parent_id: Parent's ID
+    """
+    cursor.execute(
+        "UPDATE voice_calls SET status = 'cancelled' WHERE parent_id = %s AND status = 'pending'",
+        (parent_id,)
+    )
 
 # =============================================================================
 # ESCALATION OPERATIONS
@@ -543,7 +558,7 @@ def get_message_history(cursor: Psycopg2Cursor, parent_id: int, limit: int = 100
     """
     cursor.execute(
         """
-        SELECT sender, content FROM messages
+        SELECT sender, content, message_type FROM messages
         WHERE parent_id = %s
         ORDER BY created_at DESC
         LIMIT %s
@@ -554,10 +569,10 @@ def get_message_history(cursor: Psycopg2Cursor, parent_id: int, limit: int = 100
     # Reverse to get chronological order
     messages = cursor.fetchall()[::-1]
     
-    return "\n".join(f"{sender}: {content}" for sender, content in messages)
+    return "\n".join(f"{sender} ({message_type}): {content}" for sender, content, message_type in messages)
 
 
-def log_message(cursor: Psycopg2Cursor, parent_id: int, sender: str, content: str) -> None:
+def log_message(cursor: Psycopg2Cursor, parent_id: int, sender: str, content: str, message_type: str = "whatsapp") -> None:
     """
     Log message to database.
     
@@ -569,8 +584,8 @@ def log_message(cursor: Psycopg2Cursor, parent_id: int, sender: str, content: st
     """
     cursor.execute(
         """
-        INSERT INTO messages (parent_id, sender, content)
-        VALUES (%s, %s, %s)
+        INSERT INTO messages (parent_id, sender, content, message_type)
+        VALUES (%s, %s, %s, %s)
         """,
-        (parent_id, sender, content)
+        (parent_id, sender, content, message_type)
     )

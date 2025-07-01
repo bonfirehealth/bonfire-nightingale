@@ -83,7 +83,7 @@ ngrok config add-authtoken <YOUR_AUTH_TOKEN>
 Run voice proxy server
 ```bash
 docker build --no-cache -t voice-proxy .
-docker run -p 8000:8000 voice-proxy
+docker run -it -p 8080:8080 --env ENVIRONMENT_NAME=prod voice-proxy
 ```
 
 ## Create Stripe Product

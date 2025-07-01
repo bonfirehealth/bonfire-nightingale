@@ -51,7 +51,7 @@ def construct_openai_prompt(parent_data: dict, children: list, message_history: 
         children_info = "No children found."
     
     # Calculate trial remaining days
-    trial_remaining_days = 30
+    trial_remaining_days = 7
     if parent_data["subscription_status"] == "trialing" and parent_data.get("trial_start_date"):
         trial_remaining_days = (datetime.now(pytz.utc) - parent_data["trial_start_date"]).days
     

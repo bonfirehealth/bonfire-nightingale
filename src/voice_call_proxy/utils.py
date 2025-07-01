@@ -1,11 +1,9 @@
-import os
+from pathlib import Path
 
 import aiohttp
-import requests
 
 from config import (
-    logger, PUBLIC_DOMAIN, ELEVENLABS_ENGLISH_AGENT_ID,
-    ELEVENLABS_CHINESE_AGENT_ID
+    logger, ELEVENLABS_ENGLISH_AGENT_ID, ELEVENLABS_CHINESE_AGENT_ID
 )
 
 # Helper function to get signed URL for authenticated conversations
@@ -32,6 +30,15 @@ async def get_signed_url(api_key: str, agent_id: str):
         logger.error(f"Error getting signed URL: {e}")
         raise
 
+def get_system_prompt(language: str) -> str:
+    system_prompt_file = Path(__file__).parent / f"system_prompt_template.{language}.txt"
+    if not system_prompt_file.exists():
+        raise ValueError(f"System prompt file not found: {system_prompt_file}")
+    
+    with open(system_prompt_file, "r", encoding="utf-8") as file:
+        return file.read()
+    
+
 async def get_agent_system_prompt(api_key: str, agent_id: str):
     try:
         url = f"https://api.elevenlabs.io/v1/convai/agents/{agent_id}"
@@ -52,9 +59,6 @@ async def get_agent_system_prompt(api_key: str, agent_id: str):
         logger.error(f"Error getting agent info: {e}")
         raise
 
-def get_public_domain():
-    """Returns public domain of the Fargate task"""
-    return PUBLIC_DOMAIN
 
 def get_agent_id_by_language(language: str):
     if language == "english":

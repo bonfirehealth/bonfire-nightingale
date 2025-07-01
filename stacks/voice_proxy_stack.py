@@ -3,6 +3,8 @@ from aws_cdk import (
     aws_ec2 as ec2,
     aws_iam as iam,
     aws_lambda as lambda_,
+    aws_rds as rds,
+    aws_secretsmanager as secretsmanager,
     BundlingOptions,
     Duration
 )
@@ -10,72 +12,46 @@ from constructs import Construct
 
 class VoiceProxyEc2Stack(Stack):
     def __init__(self, scope: Construct, construct_id: str,
-                 lambda_security_group: ec2.ISecurityGroup,  # Vẫn cần cho Lambda
+                 vpc: ec2.IVpc,
+                 lambda_security_group: ec2.ISecurityGroup,
+                 voice_ec2_proxy_security_group: ec2.ISecurityGroup,
+                 db_cluster: rds.IDatabaseCluster,
+                 db_credentials_secret: secretsmanager.ISecret,
                  application_secrets_arn: str,
+                 db_name: str,
                  environment_name: str,
                  is_prod: bool,
                  **kwargs) -> None:
         super().__init__(scope, construct_id, **kwargs)
         
-        # Sử dụng Default VPC
-        default_vpc = ec2.Vpc.from_lookup(self, "DefaultVPC", is_default=True)
-        
-        # Tạo Security Group riêng cho EC2 trong Default VPC
-        voice_ec2_security_group = ec2.SecurityGroup(self, "VoiceProxySecurityGroup",
-            vpc=default_vpc,
-            description="Security group for Voice Proxy EC2",
-            allow_all_outbound=True  # Allow all outbound traffic
-        )
-        
-        # Thêm inbound rules
-        voice_ec2_security_group.add_ingress_rule(
-            peer=ec2.Peer.any_ipv4(),
-            connection=ec2.Port.tcp(22),
-            description="Allow SSH from anywhere"
-        )
-        
-        voice_ec2_security_group.add_ingress_rule(
-            peer=ec2.Peer.any_ipv4(),
-            connection=ec2.Port.tcp(80),
-            description="Allow HTTP from anywhere"
-        )
-        
-        voice_ec2_security_group.add_ingress_rule(
-            peer=ec2.Peer.any_ipv4(),
-            connection=ec2.Port.tcp(443),
-            description="Allow HTTPS from anywhere"
-        )
-        
-        # Thêm port tùy chỉnh nếu cần (ví dụ cho voice proxy)
-        voice_ec2_security_group.add_ingress_rule(
-            peer=ec2.Peer.any_ipv4(),
-            connection=ec2.Port.tcp(8080),
-            description="Allow custom port 8080"
-        )
-        
-        # Tạo IAM role cho EC2 (optional nhưng recommended)
+        # Tạo IAM role cho EC2
         ec2_role = iam.Role(self, "VoiceProxyInstanceRole",
             assumed_by=iam.ServicePrincipal("ec2.amazonaws.com"),
             managed_policies=[
                 iam.ManagedPolicy.from_aws_managed_policy_name("AmazonSSMManagedInstanceCore"),
-                # Thêm permissions khác nếu cần
             ]
         )
         
-        # Tạo EC2 instance trong Default VPC
+        # Grant EC2 access to secrets
+        application_secrets_object = secretsmanager.Secret.from_secret_complete_arn(
+            self, "ImportedApplicationSecrets", application_secrets_arn)
+        application_secrets_object.grant_read(ec2_role)
+        db_credentials_secret.grant_read(ec2_role)
+        
+        # Tạo EC2 instance trong custom VPC, public subnet
         self.voice_proxy_instance = ec2.Instance(self, "VoiceProxyInstance",
             instance_type=ec2.InstanceType("t3.micro"),
             machine_image=ec2.MachineImage.latest_amazon_linux2(),
-            vpc=default_vpc,
-            vpc_subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PUBLIC),  # Phải chỉ định rõ
-            security_group=voice_ec2_security_group,
+            vpc=vpc,  # Sử dụng custom VPC
+            vpc_subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PUBLIC),  # Public subnet để có internet access
+            security_group=voice_ec2_proxy_security_group,  # Sử dụng security group đã được cấu hình
             key_pair=ec2.KeyPair.from_key_pair_name(self, "KeyPair", "nightingale-voice-proxy"),
             user_data=ec2.UserData.for_linux(),
-            associate_public_ip_address=True,
+            associate_public_ip_address=True,  # Quan trọng: cần public IP
             role=ec2_role,
         )
         
-        # Allocate Elastic IP (optional - nếu muốn IP cố định)
+        # Allocate Elastic IP để có IP cố định
         eip = ec2.CfnEIP(self, "VoiceProxyEIP")
         
         # Associate Elastic IP with EC2 instance
@@ -84,35 +60,42 @@ class VoiceProxyEc2Stack(Stack):
             instance_id=self.voice_proxy_instance.instance_id,
         )
         
-        # # User data setup
-        # self.voice_proxy_instance.user_data.add_commands(
-        #     "yum update -y",
-        #     "yum install -y docker",
-        #     "systemctl start docker",
-        #     "systemctl enable docker",
-        #     "usermod -a -G docker ec2-user",
-        #     # Thêm các commands khác nếu cần
-        # )
+        # User data để setup cơ bản
+        self.voice_proxy_instance.user_data.add_commands(
+            "yum update -y",
+            "yum install -y docker postgresql15",  # Cài PostgreSQL client để test connection
+            "systemctl start docker",
+            "systemctl enable docker",
+            "usermod -a -G docker ec2-user",
+            # Cài AWS CLI nếu chưa có
+            "yum install -y aws-cli",
+        )
         
-        # Lambda function vẫn có thể dùng VPC riêng hoặc không dùng VPC
-        # Nếu Lambda không cần kết nối tới EC2 trực tiếp, có thể bỏ VPC
-        
+        # Lambda function executor
         executor_lambda_role = iam.Role(self, "VoiceCallExecutorLambdaRole",
             assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
             managed_policies=[
                 iam.ManagedPolicy.from_aws_managed_policy_name("service-role/AWSLambdaBasicExecutionRole"),
-                # Bỏ VPC access nếu không cần
+                iam.ManagedPolicy.from_aws_managed_policy_name("service-role/AWSLambdaVPCAccessExecutionRole")
             ]
         )
+        
+        # Grant Lambda access to secrets and database
+        application_secrets_object.grant_read(executor_lambda_role)
+        db_credentials_secret.grant_read(executor_lambda_role)
         
         common_lambda_env = {
             "APPLICATION_SECRETS_ARN": application_secrets_arn,
             "ENVIRONMENT_NAME": environment_name,
             "EC2_INSTANCE_ID": self.voice_proxy_instance.instance_id,
-            "EC2_PUBLIC_IP": eip.ref,  # Có thể truyền IP để Lambda biết
+            "EC2_PUBLIC_IP": eip.ref,
+            "DB_HOST": db_cluster.cluster_endpoint.hostname,
+            "DB_PORT": str(db_cluster.cluster_endpoint.port),
+            "DB_NAME": db_name,
+            "DB_CREDENTIALS_SECRET_ARN": db_credentials_secret.secret_arn,
         }
         
-        # Lambda không cần VPC nếu chỉ call EC2 qua public IP
+        # Lambda function có thể cần VPC nếu phải truy cập database
         self.voice_proxy_executor_function = lambda_.Function(self, "VoiceProxyExecutorFunction",
             runtime=lambda_.Runtime.PYTHON_3_11,
             handler="app.lambda_handler",
@@ -123,8 +106,11 @@ class VoiceProxyEc2Stack(Stack):
                     "pip install -r requirements.txt -t /asset-output && cp -au . /asset-output"
                 ]
             )),
+            vpc=vpc,
+            vpc_subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS),
+            security_groups=[lambda_security_group],
             environment=common_lambda_env,
             role=executor_lambda_role,
             timeout=Duration.seconds(30),
-            memory_size=256  # Sửa biến lambda_memory_scheduled
+            memory_size=256
         )
