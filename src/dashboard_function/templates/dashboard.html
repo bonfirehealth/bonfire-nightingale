@@ -67,7 +67,8 @@
                     <div class="card-body">
                         <div class="row no-gutters align-items-center">
                             <div class="card-title">Trial Conversion Rate</div>
-                            <div class="card-text">{{ "%.2f"|format(metrics.trial_conversion_rate * 100) }}%</div>
+                            <!-- <div class="card-text">{{ "%.2f"|format(metrics.trial_conversion_rate * 100) }}%</div> -->
+                            <div class="card-text">N/A</div>
                         </div>
                     </div>
                 </div>
@@ -77,8 +78,8 @@
                 <div class="card stat-card border-warning shadow-sm h-100 py-2">
                     <div class="card-body">
                         <div class="row no-gutters align-items-center">
-                            <div class="card-title">Coaching Sessions (Last 30 Days)</div>
-                            <div class="card-text">{{ metrics.coaching_sessions_30d }}</div>
+                            <div class="card-title">Total Messages Initiated</div>
+                            <div class="card-text">{{ metrics.total_messages_initiated }}</div>
                             </div>
                         </div>
                     </div>

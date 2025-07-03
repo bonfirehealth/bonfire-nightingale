@@ -20,6 +20,8 @@ env = Environment(loader=file_loader)
 # Global connection for Lambda reuse
 db_conn = None
 
+EXCLUDED_PARENT_IDS = [10, 24]
+
 def get_db_credentials():
     """Lấy thông tin đăng nhập DB từ AWS Secrets Manager."""
     secrets_client = boto3.client("secretsmanager")
@@ -66,25 +68,27 @@ def fetch_dashboard_metrics(cursor):
     metrics['new_users_30d'] = cursor.fetchone()[0]
 
     # 3. Trial Conversion Rate
-    cursor.execute("""
-        SELECT
-            COUNT(id) FILTER (WHERE subscription_status = 'active_paid') AS paid_users,
-            COUNT(id) FILTER (WHERE subscription_status IN ('trialing', 'trial_opted_out', 'trial_expired', 'cancelled')) AS finished_trial_users
-        FROM parents;
-    """)
-    result = cursor.fetchone()
-    paid_users = result[0]
-    finished_trial_users = result[1]
-    total_trial_outcomes = paid_users + finished_trial_users
-    metrics['trial_conversion_rate'] = paid_users / total_trial_outcomes if total_trial_outcomes > 0 else 0
+    # cursor.execute("""
+    #     SELECT
+    #         COUNT(id) FILTER (WHERE subscription_status = 'active_paid') AS paid_users,
+    #         COUNT(id) FILTER (WHERE subscription_status IN ('trialing', 'trial_opted_out', 'trial_expired', 'cancelled')) AS finished_trial_users
+    #     FROM parents;
+    # """)
+    # result = cursor.fetchone()
+    # paid_users = result[0]
+    # finished_trial_users = result[1]
+    # total_trial_outcomes = paid_users + finished_trial_users
+    # metrics['trial_conversion_rate'] = paid_users / total_trial_outcomes if total_trial_outcomes > 0 else 0
+    metrics['trial_conversion_rate'] = 0
 
-    # 4. Total Coaching Sessions (Last 30 days)
+    # 4. Total messages initiated
     cursor.execute("""
         SELECT COUNT(id)
-        FROM coaching_sessions
-        WHERE session_start_time >= NOW() - INTERVAL '30 days';
-    """)
-    metrics['coaching_sessions_30d'] = cursor.fetchone()[0]
+        FROM messages 
+        WHERE sender = 'user'
+        AND (parent_id IS NULL OR parent_id NOT IN %s);
+    """, (tuple(EXCLUDED_PARENT_IDS),))
+    metrics['total_messages_initiated'] = cursor.fetchone()[0]
     
     return metrics
 
