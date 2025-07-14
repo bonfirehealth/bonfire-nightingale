@@ -126,7 +126,15 @@ CREATE TYPE escalation_type_enum AS ENUM (
 -- User language preferences
 CREATE TYPE user_preferred_language_enum AS ENUM (
     'english',
-    'chinese'
+    'chinese',
+    'indonesian',
+    'malay',
+    'tagalog',
+    'vietnamese',
+    'thai',
+    'japanese',
+    'korean',
+    'hindi'
 );
 
 -- =================================================================

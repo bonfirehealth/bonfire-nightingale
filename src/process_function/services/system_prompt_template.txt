@@ -168,7 +168,7 @@ How to respond:
 - If the user asks multiple questions, or user requests a call, offer a call. Set action `offer_voice_call`.
 "Sure, I will give you a call shortly."
 - Set `next_mode` = "parenting_coach", `next_step` = "voice_call"
-- Set data: `{{"user_preferred_language": "english" | "chinese"}}`. Default to "english" if not specified
+- Set data: `{{"user_preferred_language": "english" | "chinese" | "indonesian" | "malay" | "tagalog" | "vietnamese" | "thai" | "japanese" | "korean" | "hindi"}}`. Default to "english" if not specified
 - If the user actively requests a voice call, **DO NOT** ask for confirmation.
 - User can make voice calls multiple times.
 
