@@ -31,7 +31,7 @@ async def get_signed_url(api_key: str, agent_id: str):
         raise
 
 def get_system_prompt(language: str) -> str:
-    system_prompt_file = Path(__file__).parent / f"system_prompt_template.{language}.txt"
+    system_prompt_file = Path(__file__).parent / f"system_prompt_template.txt"
     if not system_prompt_file.exists():
         raise ValueError(f"System prompt file not found: {system_prompt_file}")
     
@@ -66,4 +66,4 @@ def get_agent_id_by_language(language: str):
     elif language == "chinese":
         return ELEVENLABS_CHINESE_AGENT_ID
     else:
-        return None
+        return ELEVENLABS_ENGLISH_AGENT_ID

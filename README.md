@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-- Python >= 3.11
+- Python 3.11
 - Docker
 - NodeJS >= 22
 - AWS CLI
@@ -78,6 +78,11 @@ ngrok --version
 Configure ngrok
 ```bash
 ngrok config add-authtoken <YOUR_AUTH_TOKEN>
+```
+
+Run ngrok
+```bash
+ngrok http 8080
 ```
 
 Run voice proxy server

@@ -147,6 +147,17 @@ def update_parent_preferences(cursor: Psycopg2Cursor, parent_id: int, preference
     )
 
 
+def update_parent_consent(cursor: Psycopg2Cursor, parent_id: int, consent: bool) -> None:
+    try:
+        cursor.execute(
+            "UPDATE parents SET consent = %s WHERE id = %s",
+            (consent, parent_id)
+        )
+        logger.info(f"Updated consent for parent {parent_id}")
+    except Exception as e:
+        logger.error(f"Failed to update consent for parent {parent_id}: {e}")
+
+
 def activate_trial_plan(cursor: Psycopg2Cursor, parent_id: int) -> None:
     """
     Activate trial plan for parent.

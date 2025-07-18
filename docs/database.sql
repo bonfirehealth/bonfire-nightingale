@@ -153,6 +153,7 @@ CREATE TABLE parents (
     email VARCHAR(255) UNIQUE,
     postal_code VARCHAR(20),
     is_wtw_employee BOOLEAN NOT NULL DEFAULT FALSE,  -- Internal staff flag
+    consent BOOLEAN NOT NULL DEFAULT FALSE,  -- User consent flag
     
     -- Platform State Management
     current_mode mode_enum NOT NULL DEFAULT 'awaiting_mode_selection',

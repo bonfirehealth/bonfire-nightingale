@@ -41,6 +41,10 @@ def handle_continue_conversation(cursor: Psycopg2Cursor, parent_id: int, ai_resp
         )
         logger.info(f"Child record updated: {child_record['id']}")
     
+    # Update parent consent
+    if data.get("user_consent"):
+        db.update_parent_consent(cursor, parent_id, data.get("user_consent", False))
+    
     # Set WTW employee flag if parent mentions WTW
     if data.get("is_wtw_employee", False):
         db.update_parent_preferences(cursor, parent_id, {"is_wtw_employee": True})

@@ -67,19 +67,40 @@ def fetch_dashboard_metrics(cursor):
     """)
     metrics['new_users_30d'] = cursor.fetchone()[0]
 
-    # 3. Trial Conversion Rate
-    # cursor.execute("""
-    #     SELECT
-    #         COUNT(id) FILTER (WHERE subscription_status = 'active_paid') AS paid_users,
-    #         COUNT(id) FILTER (WHERE subscription_status IN ('trialing', 'trial_opted_out', 'trial_expired', 'cancelled')) AS finished_trial_users
-    #     FROM parents;
-    # """)
-    # result = cursor.fetchone()
-    # paid_users = result[0]
-    # finished_trial_users = result[1]
-    # total_trial_outcomes = paid_users + finished_trial_users
-    # metrics['trial_conversion_rate'] = paid_users / total_trial_outcomes if total_trial_outcomes > 0 else 0
-    metrics['trial_conversion_rate'] = 0
+    # 3. Active User Retention (30-day)
+    cursor.execute("""
+        WITH active_users_30d_ago AS (
+            SELECT DISTINCT parent_id
+            FROM messages
+            WHERE sender = 'user' 
+            AND created_at BETWEEN date_trunc('month', CURRENT_DATE - INTERVAL '1 month')
+            AND (date_trunc('month', CURRENT_DATE) - INTERVAL '1 day')
+        ),
+        active_users_current AS (
+            SELECT DISTINCT parent_id
+            FROM messages
+            WHERE sender = 'user'
+            AND created_at >= date_trunc('month', CURRENT_DATE)
+        ),
+        retained_users AS (
+            SELECT au.parent_id
+            FROM active_users_30d_ago au
+            JOIN active_users_current auc ON au.parent_id = auc.parent_id
+        )
+        SELECT 
+            COUNT(DISTINCT ru.parent_id) as retained_users_count,
+            (SELECT COUNT(DISTINCT parent_id) FROM active_users_30d_ago) as previous_month_active_users,
+            ROUND(
+                COUNT(DISTINCT ru.parent_id) * 100.0 / 
+                NULLIF((SELECT COUNT(DISTINCT parent_id) FROM active_users_30d_ago), 0),
+                1
+            ) as retention_rate
+        FROM retained_users ru;
+    """)
+    result = cursor.fetchone()
+    metrics['retained_users_count'] = result[0] or 0
+    metrics['previous_month_active_users'] = result[1] or 0
+    metrics['active_user_retention_rate'] = result[2] or 0
 
     # 4. Total messages initiated
     cursor.execute("""

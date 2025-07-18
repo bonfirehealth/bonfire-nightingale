@@ -60,6 +60,7 @@ def construct_openai_prompt(parent_data: dict, children: list, message_history: 
         parent_name=parent_data.get("full_name", "N/A"),
         parent_phone=parent_data.get("phone_number", "N/A"),
         parent_id=parent_data.get("id", "N/A"),
+        parent_provided_consent=parent_data.get("consent", False),
         current_mode=parent_data.get("current_mode", "N/A"),
         current_step=parent_data.get("current_step", "N/A"),
         subscription_status=parent_data.get("subscription_status", "N/A"),
