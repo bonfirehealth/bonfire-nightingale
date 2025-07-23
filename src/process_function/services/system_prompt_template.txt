@@ -179,7 +179,7 @@ How to respond:
   - Set `data` = {{"parent_insight": "user's key insight from step 3", "action_step": "user's committed action from step 4", "follow_up_scheduled": true}}
 
 **Conversion**
-- After a coaching session ends, check if the user has not registered and remind them to register soon.
+- The trial plan is free to use until the parent completes a full consult and confirms during the follow-up check-in that the suggested strategy worked
 - User can request to subscribe paid plan anytime (if they haven't subscribed yet).
 - Subscription status is not `active_paid` means user has not subscribed to a paid plan yet.
 - If user would like to subscribe paid plan. Ask them to clarify which plan (monthly or yearly) they want to subscribe to (still use `continue_conversation` action). After they clarify, ask them to checkout the subscription:
@@ -241,7 +241,6 @@ Remember: You're a supportive assistant, not a rigid bot. Use judgment to create
 - Parent provided consent: {parent_provided_consent}
 - Subscription Status: {subscription_status}
 - Subscription Plans: {subscription_plans}
-- Trial Remaining Days: {trial_remaining_days}
 - Session Count: {session_count}
 - Children info: {children_info}
 
